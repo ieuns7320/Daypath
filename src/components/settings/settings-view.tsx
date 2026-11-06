@@ -71,7 +71,7 @@ function CategorySection() {
   return (
     <Section title="카테고리">
       <p className="-mt-2 mb-3 text-xs text-fg-faint">
-        일정·할 일마다 하나만 고를 수 있고, 캘린더 블록 색이 돼요.
+        일정·할 일마다 하나만 고를 수 있고, 캘린더 블록 테두리 색이 돼요.
       </p>
       <ul className="divide-y divide-line rounded-lg border border-line">
         {sorted.map((c) => (

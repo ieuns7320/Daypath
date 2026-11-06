@@ -4,7 +4,8 @@
 
 - 작성일: 2026-11-06
 - 최종 수정: 2026-11-06
-- 상태: **2단계 완료**, 3단계 준비 중
+- 상태: **2단계 완료**, 3단계 준비 중 (시작 전 논의할 것: [10.7](#107-3단계-시작-전에-사용자와-정할-것))
+- 다른 PC에서 이어서 작업할 때: [10. 다른 PC에서 이어서 작업하기](#10-다른-pc에서-이어서-작업하기)
 - 작업 규칙: 작업이 끝날 때마다 새로 정한 내용을 이 문서에 반영한다. 결정 이력은 [11. 결정 기록](#11-결정-기록)에 쌓는다.
 
 ---
@@ -36,6 +37,19 @@
 | 알림 | Web Push (예정) | PWA 푸시 알림 |
 
 비용: 개인 사용 규모에서는 무료 티어로 운영 가능.
+
+설치된 정확한 버전 (`package.json` 기준, 2026-11-06):
+
+| 패키지 | 버전 | 비고 |
+|---|---|---|
+| Node.js | v24.11.1 (20.9 이상 필요) | 작업 PC 기준 |
+| next / eslint-config-next | 16.4.5 | |
+| react / react-dom | 19.3.0 | |
+| @fullcalendar/react | ^7.1.4 | 플러그인은 `@fullcalendar/react/daygrid` 같은 하위 경로로 가져온다. 반복(rrule) 플러그인은 들어 있지 않다. |
+| temporal-polyfill | ^1.0.8 | FullCalendar 7이 요구 |
+| @supabase/supabase-js | ^2.119.0 | |
+| next-themes | ^0.4.6 | `attribute={["class","data-color-scheme"]}` (FullCalendar 다크 모드가 `data-color-scheme`을 봄) |
+| tailwindcss / @tailwindcss/turbopack | ^4 | 색 토큰은 `globals.css`의 `@theme inline` |
 
 ### 저장 모드
 
@@ -70,19 +84,20 @@
 | 반복 | 지원 | **지원 안 함** |
 | 완료 체크 | 없음 | 있음 |
 | 시간 배치 | 기본 속성 | 타임 블로킹으로 "작업 시간" 배정 가능 |
-| 캘린더 모양 | 카테고리 색으로 칠한 블록 | 체크박스 (배치 시 점선 테두리 블록) |
+| 캘린더 모양 | 카테고리 색 **실선 테두리** 블록 (칠하지 않음) | 체크박스 (배치 시 카테고리 색 **점선** 테두리 블록) |
 
 ### 카테고리와 태그
 
 | | 카테고리 | 태그 |
 |---|---|---|
 | 개수 | 항목당 **1개** | 항목당 **여러 개** |
-| 색상 | 있음 (캘린더 블록 색) | 있음 (블록 안 작은 칩/점) |
+| 색상 | 있음 (캘린더 블록 테두리 색) | 있음 (`#이름` 칩 테두리 색) |
 | 필터 | 지원 | 지원 |
 
 - 색상은 라이트/다크 모드 양쪽에서 잘 보이도록 조정한 **프리셋 팔레트 10색**에서 선택: 회색 `gray`, 빨강 `red`, 주황 `orange`, 노랑 `amber`, 초록 `green`, 청록 `teal`, 파랑 `blue`, 남색 `indigo`, 보라 `purple`, 분홍 `pink`.
   - DB에는 색 이름(키)만 저장하고, 실제 색 값은 CSS 변수 `--c-<키>`가 모드별로 정한다.
-- 카테고리가 없는 일정은 회색 블록으로 표시한다.
+- 카테고리가 없는 일정은 회색 테두리로 표시한다.
+- 캘린더에서는 색을 **칠하지 않고 테두리로만** 구분한다. 블록 안은 바탕색, 글자는 기본 글자색이다.
 - 카테고리를 지우면 그 카테고리의 일정·할 일은 "카테고리 없음"이 된다. 태그를 지우면 일정·할 일에 붙어 있던 그 태그도 함께 떼어진다.
 - 필터 규칙: 같은 묶음 안에서는 **OR**(업무 또는 개인), 카테고리와 태그 사이는 **AND**(업무이면서 #중요). 필터는 캘린더와 할 일 탭에 함께 적용되고, 새로고침하면 풀린다(저장하지 않음). 지워진 카테고리·태그는 필터에서 자동으로 빠진다.
 
@@ -131,7 +146,8 @@
 
 - 시간은 `timestamptz`로 저장하고, 화면에서는 기기의 로컬 시간대로 보여준다.
 - `end_at`은 **끝 미포함** 규칙이다. 종일 일정은 마지막 날 다음 날 자정이 `end_at`이다. 편집 창에서는 하루를 빼서 "마지막 날"로 보여준다.
-- 태그는 개인용이라 별도 연결 테이블 없이 `events.tag_ids` 배열로 저장한다.
+- 태그는 개인용이라 별도 연결 테이블 없이 `events.tag_ids`·`tasks.tag_ids` 배열로 저장한다. 그래서 태그를 지울 때 앱이 직접 각 일정·할 일에서 그 id를 빼고 저장한다(DB가 자동으로 정리하지 않음).
+- id는 앱에서 `crypto.randomUUID()`로 만들어 넣는다(`newId()`). 낙관적 업데이트에서 저장 전에 id가 필요하기 때문이다.
 - 보안: 모든 테이블에 RLS(본인 `user_id` 행만 접근). 로그인한 사용자(`authenticated`)에게만 테이블 권한을 주고 `anon`은 막는다. `user_id`는 기본값 `auth.uid()`로 자동 기록된다.
 - 실시간: 네 테이블 모두 `supabase_realtime`에 등록되어 있다. 변경이 오면 300ms 모아서 전체를 다시 불러온다.
 - 저장은 낙관적 업데이트(화면 먼저 반영 → 저장)로 하고, 실패하면 상단 배너로 알린 뒤 서버 상태로 되돌린다.
@@ -156,8 +172,9 @@
 - 모바일 주간 보기는 **3일 보기**를 기본으로 함 (버튼 이름도 "3일")
 - 시간 표기: **24시간제** (시간축 `08:00`, 일정 `14:30~15:30`)
 - 시간축: 30분 칸, 드래그는 15분 단위로 맞춤, 처음 열면 08:00 위치로 스크롤
+- 시간축 칸(시각과 "종일" 글자) 너비 약 72px: FullCalendar가 글자 폭으로 칸 너비를 정하므로 `slotHeaderInnerClass`·`allDayHeaderInnerClass`로 글자에 좌우 여백(왼쪽 16px, 오른쪽 10px)을 줘서 넓힌다.
 - 현재 시각 빨간 선 표시
-- 일정 블록 내용: 시간 · 제목 (좁으면 제목이 다음 줄로), 태그는 **제목 아래 줄**에 `#이름` 칩(태그 색 배경, 흰 글자, 얇은 흰 테두리)으로 여러 개 나란히 표시 (할 일도 같음)
+- 일정 블록 내용: 시간 · 제목 (좁으면 제목이 다음 줄로), 태그는 **제목 아래 줄**에 `#이름` 칩(태그 색 테두리, 칠하지 않음)으로 여러 개 나란히 표시 (할 일도 같음)
 
 **일간 / 주간 (시간축 타임라인)**
 ```
@@ -175,7 +192,7 @@
 - 할 일은 색을 칠하지 않고 카테고리 색 체크박스 + 제목으로 그린다. 캘린더에서 체크박스를 누르면 편집 창 없이 완료만 바뀐다. 나머지 부분을 누르면 할 일 편집 창이 열린다.
 
 **월간**
-- 일정: 카테고리 색 막대, 칸이 넘치면 "+N개 더"
+- 일정: 카테고리 색 테두리 막대 (시간 일정도 점이 아닌 막대, `eventDisplay="block"`), 칸이 넘치면 "+N개 더"
 - 할 일: 날짜 칸마다 "할 일 N"(남은 개수, 모두 끝나면 "할 일 N 완료")으로 요약. 누르면 **그날의 일간 보기**로 이동한다.
 - 할 일이 놓이는 날짜: 작업 시간이 있으면 작업 시간의 날짜, 없으면 마감일. 둘 다 없으면 캘린더에 나오지 않는다.
 
@@ -289,7 +306,7 @@
 - **미니멀**: UI는 흑백·회색 톤, 색은 카테고리/태그 데이터에만 사용
 - 테두리·그림자 대신 여백과 1px 구분선으로 영역 구분
 - **다크 모드** 지원 (기본값: 시스템 설정 따름)
-- 일정 = 칠해진 블록, 할 일 = 체크박스로 생김새부터 구분
+- 일정 = 실선 테두리 블록, 할 일 = 체크박스(작업 시간은 점선 테두리)로 생김새부터 구분. 색은 테두리에만 쓴다.
 
 ---
 
@@ -320,17 +337,104 @@
 
 ## 10. 다른 PC에서 이어서 작업하기
 
-1. Git과 Node.js(20.9 이상, 현재 v24 사용)를 설치한다.
+### 10.1 처음 세팅
+
+1. Git과 Node.js(20.9 이상, 지금 PC는 v24.11.1)를 설치한다.
 2. `git clone https://github.com/ieuns7320/Daypath.git` 후 `npm install`
-3. `.env.example`을 복사해 `.env.local`을 만들고 Supabase URL·Publishable key를 넣는다. 값은 Supabase 대시보드 Project Settings → API에서 확인한다.
-4. `npm run dev` 후 같은 계정으로 로그인한다.
-5. 작업을 시작할 때는 `git pull`, 끝낼 때는 커밋 후 `git push`를 한다.
+3. `.env.example`을 복사해 `.env.local`을 만들고 두 값을 넣는다. 값은 Supabase 대시보드 → Project Settings → API에서 확인한다.
+   - `NEXT_PUBLIC_SUPABASE_URL` = `https://xcbmvnhjowsuycfbapvn.supabase.co`
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = 대시보드의 **Publishable key** (`sb_publishable_...`). Secret / service_role 키는 절대 넣지 않는다.
+4. `npm run dev` → http://localhost:3000 에서 기존 계정(이메일+비밀번호)으로 로그인한다. 새 계정을 만들 필요 없다.
+5. 타입 검사 전에 한 번 `npx next typegen`을 실행한다(`LayoutProps` 같은 라우트 타입 생성).
+6. 작업을 시작할 때는 `git pull`, 끝낼 때는 커밋 후 `git push`를 한다.
+
+DB는 클라우드(Supabase)에 있으므로 PC를 옮겨도 SQL을 다시 실행할 필요가 없다. 새 마이그레이션 파일이 생겼을 때만 그 파일을 실행한다.
+
+### 10.2 현재 운영 상태 (2026-11-06 기준)
+
+| 항목 | 상태 |
+|---|---|
+| GitHub | `ieuns7320/Daypath`, 브랜치 `main` 하나 |
+| Supabase 프로젝트 | `xcbmvnhjowsuycfbapvn` (리전 서울) |
+| 실행한 SQL | `supabase/schema.sql`(1단계) ✅, `supabase/migrations/002_tasks.sql` ✅ |
+| 로그인 | 이메일+비밀번호. 가입 시 확인 메일 필요(Supabase 기본값). 사용자 계정 1개 생성·확인 완료 |
+| Auth Site URL | 기본값(`http://localhost:3000`) 그대로. 배포 후 배포 주소로 바꿔야 한다 |
+| 배포 | 아직 없음 (Vercel 예정) |
+| 실제 데이터 | 사용자가 시험용으로 넣은 카테고리 `test`, 태그 `test11`, 일정 `test` 정도. 개발 중에 사용자 데이터를 임의로 지우거나 바꾸지 않는다 |
+
+### 10.3 개발 서버와 확인 방법
+
+- `.claude/launch.json`에 서버 두 개가 있다.
+  - `daypath-dev`: `npm run dev`, 포트 3000, `.env.local`을 읽어 **클라우드 모드**
+  - `daypath-local-mode`: 포트 3001, Supabase 환경 변수를 비워 **로컬 모드**. 시험 데이터를 마음대로 넣고 지울 때 쓴다(데이터는 브라우저 localStorage `daypath:v1`).
+- Next 16은 같은 폴더에서 `next dev`를 **하나만** 띄울 수 있다("Another next dev server is already running"). 두 모드를 바꿀 때는 하나를 끄고 다른 하나를 켠다.
+- 작업 후 확인 순서: 브라우저로 화면 확인(데스크톱·모바일 375px·라이트/다크) → `npx tsc --noEmit` → `npx eslint src` → `npx next build`.
+- 개발 중 콘솔의 `Route "/calendar": Could not validate that a segment in your UI has instant navigation` 에러는 Next 16 개발 모드의 검사 메시지다. 모든 탭에서 나오고 동작에는 영향이 없어 지금은 무시한다. 원인은 아직 확인하지 않았다(브라우저 전용 렌더링 `dynamic(..., { ssr: false })` 때문으로 추정). 없애려면 각 페이지에 `export const instant = false`를 두는 방법이 메시지에 안내되어 있다.
+- `next dev`가 `AGENTS.md`를 다시 써 넣을 수 있다. 내용이 같으면 그대로 커밋해도 된다.
+- Windows 메모: PowerShell에서 `git push`가 빨간 `NativeCommandError`를 보여도 git이 stderr에 진행 상황을 쓴 것뿐이라 성공일 수 있다(출력의 `main -> main` 확인). curl은 `--ssl-no-revoke`가 필요할 수 있다.
+
+### 10.4 코드 구조와 데이터 흐름
+
+```
+app/(main)/layout.tsx   AuthGate(로그인) → DataProvider(데이터) → AppShell(사이드바·하단 탭)
+app/page.tsx            /calendar 로 이동
+app/(main)/*/page.tsx   각 탭. 캘린더·할 일은 *-client.tsx가 dynamic(ssr:false)로 감싼다
+lib/data/supabase.ts    환경 변수가 있으면 Supabase 클라이언트, 없으면 null
+lib/data/repo.ts        저장소. supabase가 있으면 cloudRepo, 없으면 localRepo(localStorage)
+                        load / upsert / upsertMany / remove / subscribe(실시간)
+lib/data/store.tsx      DataProvider + useStore(): 전체 데이터(Snapshot), 저장 함수, 필터
+lib/types.ts            Category, Tag, CalendarEvent, Task, Snapshot
+lib/palette.ts          색 키 10개, colorVar(key) → CSS 변수
+lib/date.ts             날짜 입력값 변환, 마감 표시("내일", "11월 7일 (토)") 등
+lib/tasks.ts            할 일 그룹 나누기·정렬
+components/calendar/    calendar-view(FullCalendar 설정·렌더), task-panel(드래그 목록), calendar-theme.css
+components/editor/      item-editor: 일정·할 일 공용 편집 창 (body에 portal)
+components/tasks/       할 일 탭, 행, 체크박스
+components/filter/      모바일 필터 버튼·시트
+components/settings/    테마, 카테고리·태그 관리, 로그아웃
+```
+
+- 화면은 `useStore()`로 데이터를 읽고 `saveEvent`, `toggleTask`, `deleteTag` 같은 함수로만 바꾼다. 각 함수는 `run(낙관적 변경, 저장)` 패턴: 화면 상태를 먼저 바꾸고 저장하며, 실패하면 오류 배너를 띄우고 서버에서 다시 불러온다.
+- 실시간: 다른 기기·탭에서 바뀌면 `subscribe`가 알려 주고, 300ms 모아서 전체를 다시 불러온다(부분 갱신 없음, 개인용이라 충분).
+- 새 테이블을 추가할 때 고칠 곳: `supabase/migrations/00N_*.sql` → `types.ts`(타입·Snapshot) → `repo.ts`(TableRow, load, 매퍼, subscribe 목록, 로컬 모드) → `store.tsx`(저장 함수) → 화면.
+
+### 10.5 브라우저에 저장하는 값 (기기별)
+
+| 키 | 내용 |
+|---|---|
+| `daypath:v1` | 로컬 모드의 전체 데이터 (클라우드 모드에서는 안 씀) |
+| `daypath:cal-show-tasks` | 캘린더 "할 일 표시" 토글 (`1`/`0`) |
+| `daypath:cal-task-panel` | 데스크톱 할 일 패널 열림 (`1`/`0`) |
+| `daypath:tasks-sort` | 할 일 정렬 (`due`/`created`) |
+| `theme` | next-themes 테마 (`system`/`light`/`dark`) |
+| `sb-…-auth-token` | Supabase 로그인 세션 |
+
+필터와 캘린더 보기(일/주/월)는 저장하지 않는다.
+
+### 10.6 알려진 문제·확인 못 한 것
+
+- 편집 창의 시간 입력칸은 브라우저 기본 컨트롤이라 OS 언어에 따라 오전/오후로 보인다 (8장 남은 일).
+- 모바일 일간 보기 제목("2026년 11월 6일")은 헤더가 좁아 잘릴 수 있다. 확인하지 않았다.
+- "Can't perform a React state update on a component that hasn't mounted yet" 에러는 마운트 후 렌더링으로 고쳤지만, 원래 재현이 잘 안 되던 문제라 다시 보이면 원인을 다시 본다 (2장 구현 시 주의).
+- 반복 일정·알림·로드맵은 아직 없다. 로드맵 탭은 "준비 중" 화면(`coming-soon.tsx`).
+
+### 10.7 3단계 시작 전에 사용자와 정할 것
+
+3단계(반복 일정, 알림, PWA 설치)는 큰 기능이라 코드 전에 구상을 맞춘다. 미리 정리해 둔 논점:
+
+- **반복 일정 저장 방식**: 일정에 반복 규칙(RRULE 같은 문자열)과 예외 날짜를 저장하고 화면에서 펼칠지, 발생 건을 미리 만들어 둘지. FullCalendar 7 패키지에는 rrule 플러그인이 없으므로 펼치기는 직접 하거나 별도 라이브러리가 필요하다.
+- 반복 일정 수정·삭제 선택지: 이 일정만 / 이후 모든 일정 / 전체 (4장).
+- 반복 단위 범위: 매일·매주(요일)·매월·매년, 간격, 종료 조건(없음/날짜/횟수).
+- **알림**: Web Push는 HTTPS가 필요하고 iPhone/iPad는 홈 화면에 설치한 PWA에서만 받을 수 있다. 그래서 Vercel 배포가 먼저 필요하다. 서버에서 정해진 시간에 보내려면 Supabase 예약 작업(pg_cron + Edge Function 등)과 VAPID 키가 필요하다.
+- 알림 시점 기본값과 할 일 알림 규칙 (6장).
+- **PWA 설치**: 앱 아이콘(디자인 필요), manifest, 서비스 워커. Next 16 문서 `node_modules/next/dist/docs/01-app/02-guides/progressive-web-apps.md`와 `03-api-reference/03-file-conventions/01-metadata/manifest.md`를 먼저 읽는다.
 
 ---
 
 ## 11. 결정 기록
 
 작업이 끝날 때마다 새로 정한 내용을 날짜와 함께 추가한다. 위 본문에도 함께 반영한다.
+이력이므로 예전 행은 고치지 않는다. 같은 주제가 여러 번 나오면 **아래쪽(나중) 행이 우선**이고, 현재 규칙은 본문이 기준이다. (예: "태그는 점" → 나중에 `#이름` 칩, "칠한 블록" → 나중에 테두리만)
 
 | 날짜 | 결정 | 이유 |
 |---|---|---|
@@ -360,4 +464,6 @@
 | 2026-11-06 | 모바일 캘린더 헤더 간격 축소 | 할 일·필터 버튼이 늘어 제목이 잘림 |
 | 2026-11-06 | 캘린더 블록의 태그를 제목 옆 점 → 제목 아래 줄 `#이름` 칩으로 | 사용자 요청, 흔한 태그 모양이고 여러 개여도 구분됨 |
 | 2026-11-06 | 설정의 카테고리·태그 삭제 확인을 `confirm()` 대신 행 안 [취소][삭제]로 | `confirm()`이 막히는 환경에서 삭제가 안 됨 |
+| 2026-11-06 | 일정 블록·태그 칩을 칠하지 않고 색 테두리로만 구분 | 사용자 요청, 화면이 덜 무겁고 블록 색과 태그 색이 겹쳐도 읽힘 |
+| 2026-11-06 | 일간·주간의 시간축 칸 가로 너비를 약 45px → 72px로 | 사용자 요청, 시각 글자가 칸에 꽉 차 좁아 보임 |
 | 2026-11-06 | FullCalendar는 캘린더 화면이 마운트된 뒤에 그림 | 페이지 전환 중 마운트 전 상태 업데이트 에러(재발) 방지 |

@@ -136,9 +136,15 @@ export function CalendarView() {
       start: e.start_at,
       end: e.end_at,
       allDay: e.all_day,
-      color: colorVar(e.category_id ? catColor.get(e.category_id) : null),
+      // 칠하지 않고 블록 안에서 카테고리 색 테두리로 그린다 (renderItem)
+      color: "transparent",
+      contrastColor: "var(--fg)",
       order: 0,
-      extendedProps: { kind: "event", tags: tagsOf(e.tag_ids) } satisfies ItemProps,
+      extendedProps: {
+        kind: "event",
+        tags: tagsOf(e.tag_ids),
+        catColor: e.category_id ? (catColor.get(e.category_id) ?? null) : null,
+      } satisfies ItemProps,
     }));
 
     if (!showTasks) return list;
@@ -299,7 +305,11 @@ export function CalendarView() {
       const tagLine = p.tags?.length ? (
         <span className="daypath-event-tags">
           {p.tags.map((t, i) => (
-            <span key={i} className="daypath-event-tag" style={{ background: colorVar(t.color) }}>
+            <span
+              key={i}
+              className="daypath-event-tag"
+              style={{ "--tag-color": colorVar(t.color) } as React.CSSProperties}
+            >
               #{t.name}
             </span>
           ))}
@@ -335,7 +345,10 @@ export function CalendarView() {
       }
 
       return (
-        <div className="daypath-event">
+        <div
+          className="daypath-event daypath-event-box"
+          style={{ "--event-color": colorVar(p.catColor) } as React.CSSProperties}
+        >
           {info.timeText && <span className="daypath-event-time">{info.timeText}</span>}
           <span className="daypath-event-title">{info.event.title}</span>
           {tagLine}
@@ -431,6 +444,9 @@ export function CalendarView() {
             firstDay={0}
             nowIndicator
             allDayText="종일"
+            // 시간축 칸 너비는 안에 든 글자 폭으로 정해지므로, 글자에 좌우 여백을 줘서 넓힌다
+            slotHeaderInnerClass="daypath-axis-label"
+            allDayHeaderInnerClass="daypath-axis-label"
             // 24시간 표기: 시간축 "08:00", 일정 시간 "14:30"
             slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
             eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
@@ -440,6 +456,8 @@ export function CalendarView() {
             dayMaxEvents
             // 일정 먼저, 그다음 할 일
             eventOrder="order,start,-duration,allDay,title"
+            // 월간의 시간 일정도 점+글자 대신 테두리 블록으로 (색 점이 투명해지므로)
+            eventDisplay="block"
             editable={interactive}
             selectable={interactive}
             droppable={interactive}
