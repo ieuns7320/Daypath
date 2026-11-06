@@ -40,7 +40,16 @@ function useIsActive() {
 
 function Sidebar() {
   const isActive = useIsActive();
-  const { categories, tags, mode } = useStore();
+  const {
+    categories,
+    tags,
+    mode,
+    filter,
+    filterActive,
+    toggleCategoryFilter,
+    toggleTagFilter,
+    clearFilter,
+  } = useStore();
 
   return (
     <aside className="hidden w-56 shrink-0 flex-col border-r border-line bg-bg-subtle md:flex">
@@ -66,6 +75,16 @@ function Sidebar() {
       </nav>
 
       <div className="mt-6 min-h-0 flex-1 space-y-6 overflow-y-auto px-3">
+        {filterActive && (
+          <button
+            onClick={clearFilter}
+            className="flex w-full items-center justify-between rounded-md bg-bg-hover px-2.5 py-1.5 text-xs text-fg"
+          >
+            필터 적용 중
+            <span className="text-fg-muted">해제</span>
+          </button>
+        )}
+
         <section>
           <h2 className="px-2.5 pb-1.5 text-xs font-medium text-fg-faint">카테고리</h2>
           {categories.length === 0 ? (
@@ -75,12 +94,18 @@ function Sidebar() {
               {[...categories]
                 .sort((a, b) => a.sort_order - b.sort_order)
                 .map((c) => (
-                  <li key={c.id} className="flex items-center gap-2.5 px-2.5 py-1 text-sm">
-                    <span
-                      className="size-2.5 rounded-[3px]"
-                      style={{ background: colorVar(c.color) }}
-                    />
-                    <span className="truncate">{c.name}</span>
+                  <li key={c.id}>
+                    <FilterItem
+                      active={filter.categoryIds.includes(c.id)}
+                      dimmed={filterActive && !filter.categoryIds.includes(c.id)}
+                      onClick={() => toggleCategoryFilter(c.id)}
+                    >
+                      <span
+                        className="size-2.5 shrink-0 rounded-[3px]"
+                        style={{ background: colorVar(c.color) }}
+                      />
+                      <span className="truncate">{c.name}</span>
+                    </FilterItem>
                   </li>
                 ))}
             </ul>
@@ -94,9 +119,20 @@ function Sidebar() {
           ) : (
             <ul className="space-y-0.5">
               {tags.map((t) => (
-                <li key={t.id} className="flex items-center gap-2 px-2.5 py-1 text-sm">
-                  <HashIcon width={14} height={14} style={{ color: colorVar(t.color) }} />
-                  <span className="truncate">{t.name}</span>
+                <li key={t.id}>
+                  <FilterItem
+                    active={filter.tagIds.includes(t.id)}
+                    dimmed={filterActive && !filter.tagIds.includes(t.id)}
+                    onClick={() => toggleTagFilter(t.id)}
+                  >
+                    <HashIcon
+                      width={14}
+                      height={14}
+                      className="shrink-0"
+                      style={{ color: colorVar(t.color) }}
+                    />
+                    <span className="truncate">{t.name}</span>
+                  </FilterItem>
                 </li>
               ))}
             </ul>
@@ -123,6 +159,32 @@ function Sidebar() {
         )}
       </div>
     </aside>
+  );
+}
+
+/** 사이드바의 카테고리/태그 항목: 누르면 필터 켜기/끄기 */
+function FilterItem({
+  active,
+  dimmed,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  dimmed: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      title={active ? "필터 끄기" : "이것만 보기"}
+      className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-sm hover:bg-bg-hover ${
+        active ? "bg-bg-hover font-medium" : dimmed ? "text-fg-faint" : ""
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

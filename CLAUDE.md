@@ -27,4 +27,5 @@ npx next build     # 프로덕션 빌드 확인
 ## 주의할 점
 
 - Next.js 16(Cache Components 켜짐), FullCalendar 7을 쓴다. 학습된 지식과 API가 다를 수 있으니 `node_modules`의 문서와 타입 정의를 확인한다. 자세한 내용은 SPEC 2장 "구현 시 주의"를 본다.
-- DB 스키마를 바꾸면 `supabase/schema.sql`을 함께 고치고, 사용자에게 Supabase SQL Editor에서 실행해 달라고 안내한다.
+- DB 스키마를 바꾸면 `supabase/migrations/`에 다음 번호의 SQL 파일을 추가하고, 사용자에게 Supabase SQL Editor에서 실행해 달라고 안내한다.
+- 클라우드 데이터를 건드리지 않고 시험할 때는 `.claude/launch.json`의 `daypath-local-mode`(포트 3001, 로컬 모드) 서버를 쓴다.

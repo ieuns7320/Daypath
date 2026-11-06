@@ -71,7 +71,7 @@ function CategorySection() {
   return (
     <Section title="카테고리">
       <p className="-mt-2 mb-3 text-xs text-fg-faint">
-        일정마다 하나만 고를 수 있고, 캘린더 블록 색이 돼요.
+        일정·할 일마다 하나만 고를 수 있고, 캘린더 블록 색이 돼요.
       </p>
       <ul className="divide-y divide-line rounded-lg border border-line">
         {sorted.map((c) => (
@@ -82,10 +82,8 @@ function CategorySection() {
             marker={<span className="size-3 rounded-[3px]" style={{ background: colorVar(c.color) }} />}
             onRename={(name) => saveCategory({ ...c, name })}
             onRecolor={(color) => saveCategory({ ...c, color })}
-            onDelete={() => {
-              if (confirm(`'${c.name}' 카테고리를 삭제할까요?\n이 카테고리의 일정은 '카테고리 없음'이 돼요.`))
-                void deleteCategory(c.id);
-            }}
+            deleteNote="이 카테고리의 일정·할 일은 '카테고리 없음'이 돼요."
+            onDelete={() => void deleteCategory(c.id)}
           />
         ))}
         <AddRow
@@ -111,7 +109,7 @@ function TagSection() {
   return (
     <Section title="태그">
       <p className="-mt-2 mb-3 text-xs text-fg-faint">
-        일정에 여러 개 붙일 수 있고, 블록 안에 작은 점으로 표시돼요.
+        일정·할 일에 여러 개 붙일 수 있고, 블록 제목 아래 #이름으로 표시돼요.
       </p>
       <ul className="divide-y divide-line rounded-lg border border-line">
         {tags.map((t) => (
@@ -122,10 +120,8 @@ function TagSection() {
             marker={<HashIcon width={14} height={14} style={{ color: colorVar(t.color) }} />}
             onRename={(name) => saveTag({ ...t, name })}
             onRecolor={(color) => saveTag({ ...t, color })}
-            onDelete={() => {
-              if (confirm(`'${t.name}' 태그를 삭제할까요?\n일정에 붙어 있던 이 태그도 함께 떼어져요.`))
-                void deleteTag(t.id);
-            }}
+            deleteNote="일정·할 일에 붙어 있던 이 태그도 함께 떼어져요."
+            onDelete={() => void deleteTag(t.id)}
           />
         ))}
         <AddRow
@@ -145,6 +141,7 @@ function ItemRow({
   marker,
   onRename,
   onRecolor,
+  deleteNote,
   onDelete,
 }: {
   name: string;
@@ -152,10 +149,13 @@ function ItemRow({
   marker: ReactNode;
   onRename: (name: string) => void;
   onRecolor: (color: ColorKey) => void;
+  deleteNote: string;
   onDelete: () => void;
 }) {
   const [draft, setDraft] = useState(name);
   const [picking, setPicking] = useState(false);
+  // 브라우저 confirm()은 앱 안 브라우저·PWA에서 막히기도 해서, 행 안에서 한 번 더 묻는다.
+  const [confirming, setConfirming] = useState(false);
 
   const commit = () => {
     const next = draft.trim();
@@ -180,10 +180,34 @@ function ItemRow({
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           className="min-w-0 flex-1 bg-transparent text-sm outline-none"
         />
-        <button onClick={onDelete} aria-label="삭제" className="text-fg-faint hover:text-danger">
+        <button
+          onClick={() => setConfirming((v) => !v)}
+          aria-label="삭제"
+          aria-expanded={confirming}
+          className={confirming ? "text-danger" : "text-fg-faint hover:text-danger"}
+        >
           <XIcon width={16} height={16} />
         </button>
       </div>
+      {confirming && (
+        <div className="mt-2 flex items-center gap-2 pl-9 text-xs">
+          <span className="min-w-0 flex-1 text-fg-muted">
+            <b className="font-medium text-fg">&apos;{name}&apos;</b>을(를) 삭제할까요? {deleteNote}
+          </span>
+          <button
+            onClick={() => setConfirming(false)}
+            className="shrink-0 rounded-md px-2 py-1 text-fg-muted hover:bg-bg-hover"
+          >
+            취소
+          </button>
+          <button
+            onClick={onDelete}
+            className="shrink-0 rounded-md bg-danger px-2 py-1 font-medium text-white hover:opacity-90"
+          >
+            삭제
+          </button>
+        </div>
+      )}
       {picking && (
         <ColorPicker
           value={color}

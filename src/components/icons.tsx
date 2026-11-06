@@ -73,6 +73,38 @@ export const XIcon = (p: IconProps) => (
   </Base>
 );
 
+export const CheckIcon = (p: IconProps) => (
+  <Base strokeWidth={2.5} {...p}>
+    <path d="m5 12.5 4.5 4.5L19 7.5" />
+  </Base>
+);
+
+export const FilterIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 5h16l-6 7.5V19l-4-2v-4.5z" />
+  </Base>
+);
+
+export const ClockIcon = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 7.5V12l3 2" />
+  </Base>
+);
+
+export const PanelIcon = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M15 4v16" />
+  </Base>
+);
+
+export const ChevronDownIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="m6 9 6 6 6-6" />
+  </Base>
+);
+
 export const HashIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M5 9h15M4 15h15M10 3 8 21M16 3l-2 18" />

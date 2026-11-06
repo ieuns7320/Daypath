@@ -1,9 +1,10 @@
-import type { CalendarEvent, Category, Snapshot, Tag } from "../types";
+import type { CalendarEvent, Category, Snapshot, Tag, Task } from "../types";
 import { isColorKey } from "../palette";
 import { supabase } from "./supabase";
 
 export type TableRow = {
   events: CalendarEvent;
+  tasks: Task;
   categories: Category;
   tags: Tag;
 };
@@ -20,7 +21,17 @@ export interface Repo {
   subscribe(onChange: () => void): () => void;
 }
 
-const EMPTY: Snapshot = { events: [], categories: [], tags: [] };
+const EMPTY: Snapshot = { events: [], tasks: [], categories: [], tags: [] };
+
+/** 일부 테이블이 없을 때: 나머지 데이터(partial)는 정상으로 쓰고 메시지만 보여준다. */
+export class MissingTableError extends Error {
+  constructor(
+    message: string,
+    public partial: Snapshot,
+  ) {
+    super(message);
+  }
+}
 
 /* ---------------- 로컬 모드 ---------------- */
 
@@ -33,6 +44,7 @@ function readLocal(): Snapshot {
     const parsed = JSON.parse(raw) as Partial<Snapshot>;
     return {
       events: parsed.events ?? [],
+      tasks: parsed.tasks ?? [],
       categories: parsed.categories ?? [],
       tags: parsed.tags ?? [],
     };
@@ -96,6 +108,22 @@ function toEvent(r: Record<string, unknown>): CalendarEvent {
   };
 }
 
+function toTask(r: Record<string, unknown>): Task {
+  return {
+    id: String(r.id),
+    title: String(r.title ?? ""),
+    due_date: (r.due_date as string | null) ?? null,
+    scheduled_start: (r.scheduled_start as string | null) ?? null,
+    scheduled_end: (r.scheduled_end as string | null) ?? null,
+    done: Boolean(r.done),
+    done_at: (r.done_at as string | null) ?? null,
+    category_id: (r.category_id as string | null) ?? null,
+    tag_ids: (r.tag_ids as string[] | null) ?? [],
+    memo: String(r.memo ?? ""),
+    created_at: String(r.created_at ?? new Date().toISOString()),
+  };
+}
+
 function toCategory(r: Record<string, unknown>): Category {
   return {
     id: String(r.id),
@@ -121,16 +149,31 @@ function cloudRepo(): Repo {
   return {
     mode: "cloud",
     async load() {
-      const [ev, cat, tag] = await Promise.all([
+      const [ev, task, cat, tag] = await Promise.all([
         db.from("events").select("*"),
+        db.from("tasks").select("*"),
         db.from("categories").select("*").order("sort_order"),
         db.from("tags").select("*").order("name"),
       ]);
       check(ev.error);
       check(cat.error);
       check(tag.error);
+      // tasks 테이블이 아직 없으면(2단계 마이그레이션 전) 할 일만 비우고 계속 진행
+      if (task.error?.code === "PGRST205") {
+        throw new MissingTableError(
+          "할 일 테이블이 없어요. Supabase SQL Editor에서 supabase/migrations/002_tasks.sql을 실행해 주세요.",
+          {
+            events: (ev.data ?? []).map(toEvent),
+            tasks: [],
+            categories: (cat.data ?? []).map(toCategory),
+            tags: (tag.data ?? []).map(toTag),
+          },
+        );
+      }
+      check(task.error);
       return {
         events: (ev.data ?? []).map(toEvent),
+        tasks: (task.data ?? []).map(toTask),
         categories: (cat.data ?? []).map(toCategory),
         tags: (tag.data ?? []).map(toTag),
       };
@@ -157,6 +200,7 @@ function cloudRepo(): Repo {
       const channel = db
         .channel("daypath-sync")
         .on("postgres_changes", { event: "*", schema: "public", table: "events" }, debounced)
+        .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, debounced)
         .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, debounced)
         .on("postgres_changes", { event: "*", schema: "public", table: "tags" }, debounced)
         .subscribe();

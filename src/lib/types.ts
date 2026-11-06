@@ -29,8 +29,28 @@ export type CalendarEvent = {
   memo: string;
 };
 
+/**
+ * 할 일.
+ * - due_date: 마감일 "YYYY-MM-DD" (선택)
+ * - scheduled_start / scheduled_end: 타임 블로킹으로 배정한 작업 시간 (둘 다 있거나 둘 다 없음, 끝 미포함)
+ */
+export type Task = {
+  id: string;
+  title: string;
+  due_date: string | null;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  done: boolean;
+  done_at: string | null;
+  category_id: string | null;
+  tag_ids: string[];
+  memo: string;
+  created_at: string;
+};
+
 export type Snapshot = {
   events: CalendarEvent[];
+  tasks: Task[];
   categories: Category[];
   tags: Tag[];
 };

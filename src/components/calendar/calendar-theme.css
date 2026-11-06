@@ -46,6 +46,44 @@ html:root {
   line-height: 1.35;
 }
 
+/* ---------- 할 일 ---------- */
+/* 할 일은 칠하지 않고 체크박스 + 제목. 작업 시간이 배정되면 카테고리 색 점선 테두리. */
+.daypath-task {
+  align-items: center;
+  color: var(--fg);
+}
+
+.daypath-task-line {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.daypath-task.is-scheduled {
+  align-content: flex-start;
+  border: 1.5px dashed var(--task-color);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--task-color) 10%, var(--bg));
+  padding: 2px 4px;
+}
+
+.daypath-task.is-done {
+  opacity: 0.5;
+}
+
+.daypath-task.is-done .daypath-event-title {
+  text-decoration: line-through;
+}
+
+/* 월간 요약 "할 일 3" */
+.daypath-tasksum {
+  align-items: center;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
 .daypath-event-time {
   flex-shrink: 0;
   opacity: 0.85;
@@ -60,17 +98,27 @@ html:root {
   font-weight: 500;
 }
 
+/* 태그: 제목 아래 별도 줄 */
 .daypath-event-tags {
-  display: inline-flex;
-  flex-shrink: 0;
-  gap: 2px;
-  margin-left: auto;
-  align-self: center;
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 2px 3px;
+  min-width: 0;
+  margin-top: 1px;
 }
 
-.daypath-event-tags > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 9999px;
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.85);
+/* "#이름" 칩: 태그 색 배경 + 흰 글자. 블록 색과 같아도 얇은 흰 테두리로 구분된다. */
+.daypath-event-tag {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 4px;
+  padding: 0 4px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 15px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.55);
 }

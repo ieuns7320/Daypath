@@ -1,5 +1,5 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { TasksClient } from "@/components/tasks/tasks-client";
 
 export default function TodosPage() {
-  return <ComingSoon title="할 일" stage="2단계" />;
+  return <TasksClient />;
 }
