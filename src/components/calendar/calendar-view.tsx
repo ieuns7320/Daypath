@@ -179,6 +179,9 @@ export function CalendarView() {
           firstDay={0}
           nowIndicator
           allDayText="종일"
+          // 24시간 표기: 시간축 "08:00", 일정 시간 "14:30"
+          slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+          eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
           scrollTime="08:00:00"
           slotDuration="00:30:00"
           snapDuration="00:15:00"
