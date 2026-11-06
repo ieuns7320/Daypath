@@ -1,0 +1,76 @@
+/*
+ * FullCalendar classic 테마의 색 변수를 Daypath 디자인 토큰에 연결.
+ * html:root 선택자로 테마 기본값(:root, [data-color-scheme=dark])보다 우선한다.
+ * 토큰 자체가 라이트/다크에서 바뀌므로 여기서는 한 번만 정의하면 된다.
+ */
+html:root {
+  --fc-classic-button: var(--bg);
+  --fc-classic-button-border: var(--line);
+  --fc-classic-button-strong: var(--bg-hover);
+  --fc-classic-button-strong-border: var(--line-strong);
+  --fc-classic-button-outline: var(--line-strong);
+  --fc-classic-button-foreground: var(--fg);
+
+  --fc-classic-primary: var(--c-gray);
+  --fc-classic-primary-foreground: #fff;
+
+  --fc-classic-highlight: color-mix(in srgb, var(--fg) 6%, transparent);
+  --fc-classic-today: color-mix(in srgb, var(--fg) 3%, transparent);
+  --fc-classic-now: var(--c-red);
+
+  --fc-classic-background: var(--bg);
+  --fc-classic-faint: color-mix(in srgb, var(--fg) 3%, transparent);
+  --fc-classic-muted: color-mix(in srgb, var(--fg) 7%, transparent);
+  --fc-classic-strong: color-mix(in srgb, var(--fg) 12%, transparent);
+
+  --fc-classic-foreground: var(--fg);
+  --fc-classic-faint-foreground: var(--fg-faint);
+  --fc-classic-muted-foreground: var(--fg-muted);
+
+  --fc-classic-border: var(--line);
+  --fc-classic-strong-border: var(--line-strong);
+}
+
+/* 일정 블록 내용 */
+/* 시간·제목을 한 줄에 두고, 블록이 좁으면 제목이 다음 줄로 넘어간다. */
+.daypath-event {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 4px;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  padding: 1px 3px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.daypath-event-time {
+  flex-shrink: 0;
+  opacity: 0.85;
+  font-size: 11px;
+}
+
+.daypath-event-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.daypath-event-tags {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-left: auto;
+  align-self: center;
+}
+
+.daypath-event-tags > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.85);
+}
