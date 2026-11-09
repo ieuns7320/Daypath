@@ -4,7 +4,7 @@
 
 - 작성일: 2026-11-06
 - 최종 수정: 2026-11-09
-- 상태: **3단계 진행 중**: 3a 반복 일정 완료, 캘린더·할 일 분리 완료, 3b PWA 코드 완료·Vercel 배포 진행 중 ([10.7](#107-3단계-시작-전에-사용자와-정할-것))
+- 상태: **3단계 진행 중**: 3a 반복 일정 완료, 캘린더·할 일 분리 완료, 3b 배포·PWA 완료(https://daypath-ten.vercel.app), 다음은 3c 알림 ([10.7](#107-3단계-시작-전에-사용자와-정할-것))
 - 다른 PC에서 이어서 작업할 때: [10. 다른 PC에서 이어서 작업하기](#10-다른-pc에서-이어서-작업하기)
 - 작업 규칙: 작업이 끝날 때마다 새로 정한 내용을 이 문서에 반영한다. 결정 이력은 [11. 결정 기록](#11-결정-기록)에 쌓는다.
 
@@ -342,11 +342,10 @@
 |---|---|---|
 | **1단계** | 프로젝트 세팅, 로그인/동기화, 일정 CRUD (종일·여러 날 포함), 카테고리·태그 (색상), 일간/주간/월간 보기, 드래그 이동·리사이즈, 다크 모드 | ✅ 완료 |
 | **2단계** | 할 일 탭 (완료 체크, 마감일), 캘린더에 할 일 표시, 타임 블로킹, 카테고리/태그 필터 | ✅ 완료 |
-| **3단계** | 3a 반복 일정 / 3b Vercel 배포·PWA 설치(아이콘·manifest·서비스 워커) / 3c 알림 (Web Push) | 진행 중: 3a ✅ 완료, 캘린더·할 일 분리 + 할 일 탭 개편 ✅ (2026-11-09), 3b PWA 코드 ✅ · Vercel 배포 진행 중 |
+| **3단계** | 3a 반복 일정 / 3b Vercel 배포·PWA 설치(아이콘·manifest·서비스 워커) / 3c 알림 (Web Push) | 진행 중: 3a ✅ 완료, 캘린더·할 일 분리 + 할 일 탭 개편 ✅ (2026-11-09), 3b 배포·PWA ✅ (2026-11-09), 3c 알림 다음 |
 | **4단계** | 로드맵 탭 (목표 → 마일스톤 → 일정/할 일 연결, 진행률, 트리/타임라인 보기) | |
 
 남은 일 (단계 무관):
-- Vercel 배포(3b). 배포 후 Supabase의 Site URL을 배포 주소로 변경해야 한다. 순서는 10.7.
 - (선택) 편집 창 시간 입력을 24시간 전용 선택기로 교체
 
 ---
@@ -384,8 +383,8 @@ DB는 클라우드(Supabase)에 있으므로 PC를 옮겨도 SQL을 다시 실�
 | Supabase 프로젝트 | `xcbmvnhjowsuycfbapvn` (리전 서울) |
 | 실행한 SQL | `supabase/schema.sql`(1단계) ✅, `supabase/migrations/002_tasks.sql` ✅, `003_recurrence.sql` ✅, `004_split_categories.sql` ✅ (2026-11-09) |
 | 로그인 | 이메일+비밀번호. 가입 시 확인 메일 필요(Supabase 기본값). 사용자 계정 1개 생성·확인 완료 |
-| Auth Site URL | 기본값(`http://localhost:3000`) 그대로. 배포 후 배포 주소로 바꿔야 한다 |
-| 배포 | 아직 없음. 3b에서 Vercel 기본 주소(`*.vercel.app`)로 배포 예정 (사용자가 Vercel에서 GitHub 저장소를 가져온다) |
+| Auth Site URL | `https://daypath-ten.vercel.app` (2026-11-09). Redirect URLs: `https://daypath-ten.vercel.app/**`, `http://localhost:3000/**` |
+| 배포 | Vercel 프로젝트 `daypath` (Hobby), **https://daypath-ten.vercel.app**. GitHub `main`에 push하면 자동 배포. 환경 변수 `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Production·Preview, Sensitive) |
 | 실제 데이터 | 사용자가 시험용으로 넣은 카테고리 `test`, 태그 `test11`, 일정 `test` 정도. 개발 중에 사용자 데이터를 임의로 지우거나 바꾸지 않는다 |
 
 ### 10.3 개발 서버와 확인 방법
@@ -484,6 +483,7 @@ components/settings/    테마, 카테고리·태그 관리, 로그아웃
   2. 환경 변수 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`(`.env.local`과 같은 값. secret 키는 넣지 않는다) 등록 후 Deploy
   3. (사용자) Supabase > Authentication > URL Configuration: Site URL을 배포 주소로, Redirect URLs에 배포 주소와 `http://localhost:3000/**` 추가
   4. 이후 `main`에 push하면 자동 배포
+- **2026-11-09 배포 완료**: https://daypath-ten.vercel.app. 배포 주소에서 HTTPS, manifest, 아이콘 5개, `/sw.js`(no-cache)와 서비스 워커 등록, 로그인 화면이 뜨는 것까지 확인했다.
 
 ---
 
@@ -555,3 +555,4 @@ components/settings/    테마, 카테고리·태그 관리, 로그아웃
 | 2026-11-09 | 서비스 워커는 3b에서 **최소 버전**(캐시 없음)으로 넣고 3c에서 푸시를 더함 | 사용자 선택, 설치 조건 확실히 + 알림 준비 |
 | 2026-11-09 | 설정에 **앱 설치** 칸 ([앱 설치] 버튼 / iOS 안내 / 설치됨) | 사용자 선택, iOS Safari는 설치 버튼이 없음 |
 | 2026-11-09 | 배포 주소는 Vercel 기본 `*.vercel.app` | 사용자 선택, 무료·설정 간단 |
+| 2026-11-09 | Vercel 배포 완료: `https://daypath-ten.vercel.app`, Supabase Site URL·Redirect URLs 변경 | 3b |
