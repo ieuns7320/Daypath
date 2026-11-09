@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FullCalendar, {
   type CalendarRef,
+  type DateClickInfo,
   type DateSelectInfo,
   type DatesSetInfo,
   type EventChangeInfo,
@@ -21,7 +22,7 @@ import "@fullcalendar/react/themes/classic/palette.css";
 import "./calendar-theme.css";
 
 import { useScoped, useStore } from "@/lib/data/store";
-import { addDays, addMinutes, nextHour, toDateInput } from "@/lib/date";
+import { addDays, addMinutes, dueLabel, fromInputs, nextHour, timeLabel, toDateInput, todayInput } from "@/lib/date";
 import { colorVar, type ColorKey } from "@/lib/palette";
 import { expandEvent } from "@/lib/recurrence";
 import { updateOccurrence, type Scope } from "@/lib/series";
@@ -89,9 +90,17 @@ export function CalendarView() {
   // 편집 창이 떠 있는 동안에는 캘린더 클릭/드래그가 새 선택으로 새어 나가지 않게 막는다.
   const interactive = editor === null && pendingMove === null;
 
+  const [scrollTime] = useState(() => `${String(Math.max(0, new Date().getHours() - 2)).padStart(2, "0")}:00:00`);
   const device = isMobile ? "mobile" : "desktop";
   const viewName = VIEW_OF[mode][device];
   const isMonth = mode === "month";
+  // 모바일 월간: 위 달력 + 아래 고른 날 일정 목록. 날짜를 누르면 그날을 고른다.
+  const mobileMonth = isMobile && isMonth;
+  // 데스크톱 월간: 오른쪽에 고른 날 일정 목록. 날짜 숫자를 누르면 그날을 고른다(빈 칸은 그대로 새 일정).
+  const desktopMonth = !isMobile && isMonth;
+  /** 데스크톱 월간에서 날짜 숫자를 눌러 시작한 선택인지 (FullCalendar의 select보다 먼저 기록) */
+  const numberPress = useRef(false);
+  const [selected, setSelected] = useState(todayInput);
 
   // 보기 전환: 캘린더를 다시 만들지 않고 보기만 바꿔서 보던 날짜를 유지한다.
   useEffect(() => {
@@ -104,6 +113,14 @@ export function CalendarView() {
   const [range, setRange] = useState<{ start: Date; end: Date } | null>(null);
   const handleDatesSet = useCallback((info: DatesSetInfo) => {
     setTitle(info.view.title);
+    // 고른 날이 이번 기간 밖이면: 오늘이 들어 있으면 오늘, 아니면 기간 첫날
+    const from = toDateInput(info.view.currentStart);
+    const to = toDateInput(info.view.currentEnd);
+    setSelected((s) => {
+      if (s >= from && s < to) return s;
+      const today = todayInput();
+      return today >= from && today < to ? today : from;
+    });
     setRange((r) =>
       r && r.start.getTime() === info.start.getTime() && r.end.getTime() === info.end.getTime()
         ? r
@@ -221,6 +238,13 @@ export function CalendarView() {
   );
 
   const handleSelect = useCallback((info: DateSelectInfo) => {
+    // 데스크톱 월간에서 날짜 숫자를 눌렀으면 새 일정 대신 그날을 고른다
+    if (numberPress.current) {
+      numberPress.current = false;
+      setSelected(toDateInput(info.start));
+      calendarRef.current?.getApi().unselect();
+      return;
+    }
     let end = info.end;
     // 한 번 클릭(아주 짧은 선택)이면 1시간짜리로 시작
     if (!info.allDay && end.getTime() - info.start.getTime() < 30 * 60_000) {
@@ -256,10 +280,25 @@ export function CalendarView() {
     );
   };
 
+  /** 모바일 월간: 빈 날짜를 누르면 그날을 고른다 (새 일정은 아래 [+ 새 일정]) */
+  const handleDateClick = useCallback((info: DateClickInfo) => {
+    setSelected(toDateInput(info.date));
+  }, []);
+
   /* ---------- 블록 내용 ---------- */
   const renderItem = useCallback(
     (info: EventDisplayInfo) => {
       const p = info.event.extendedProps as ItemProps;
+      // 모바일 월간: 제목 한 줄짜리 작은 상자 (시간·태그·↻ 없음)
+      if (isMobile && isMonth)
+        return (
+          <div
+            className="daypath-event daypath-event-box daypath-event-mini"
+            style={{ "--event-color": colorVar(p.catColor) } as React.CSSProperties}
+          >
+            <span className="daypath-event-title">{info.event.title}</span>
+          </div>
+        );
       // 태그는 제목 아래 줄에 "● 이름" (점만 태그 색)
       const tagLine = p.tags?.length ? (
         <span className="daypath-event-tags">
@@ -295,8 +334,28 @@ export function CalendarView() {
     [isMobile, isMonth],
   );
 
-  const openNew = () => {
-    const base = api()?.getDate() ?? new Date();
+  // 좌우로 밀기: 가로 60px 이상, 세로보다 확실히 많이 움직였을 때만
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const swipe = {
+    start: (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      touchStart.current = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
+    },
+    end: (e: React.TouchEvent) => {
+      const s = touchStart.current;
+      touchStart.current = null;
+      if (!s || !interactive) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - s.x;
+      const dy = t.clientY - s.y;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      if (dx < 0) api()?.next();
+      else api()?.prev();
+    },
+  };
+
+  const openNew = (day?: string) => {
+    const base = day ? fromInputs(day) : (api()?.getDate() ?? new Date());
     // 보고 있는 날짜에 다음 정각으로 1시간짜리 초안
     const start = nextHour();
     start.setFullYear(base.getFullYear(), base.getMonth(), base.getDate());
@@ -342,9 +401,22 @@ export function CalendarView() {
         <FilterButton kind="event" />
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {/* 캘린더 */}
-        <div className="daypath-calendar relative min-h-0 min-w-0 flex-1">
+      <div className={`flex min-h-0 flex-1 ${mobileMonth ? "flex-col" : ""}`}>
+        {/* 캘린더 (모바일은 좌우로 밀어서 이전·다음) */}
+        <div
+          className={`daypath-calendar relative min-w-0 ${
+            mobileMonth
+              ? "daypath-mobile-month h-[64%] min-h-[340px] shrink-0"
+              : `min-h-0 flex-1 ${desktopMonth ? "daypath-desktop-month" : ""}`
+          }`}
+          onTouchStart={isMobile ? swipe.start : undefined}
+          onTouchEnd={isMobile ? swipe.end : undefined}
+          // 캡처 단계라 FullCalendar가 선택을 시작하기 전에 기록된다
+          onPointerDownCapture={(e) => {
+            numberPress.current =
+              desktopMonth && !!(e.target as Element).closest?.(".daypath-daynum:not(.is-large)");
+          }}
+        >
           {mounted && <FullCalendar
             ref={calendarRef}
             plugins={[classicTheme, dayGridPlugin, timeGridPlugin, interactionPlugin]}
@@ -362,13 +434,46 @@ export function CalendarView() {
             // 시간축 칸 너비는 안에 든 글자 폭으로 정해지므로, 글자에 좌우 여백을 줘서 넓힌다
             slotHeaderInnerClass="daypath-axis-label"
             allDayHeaderInnerClass="daypath-axis-label"
-            // 일요일 날짜 숫자는 빨간색, 토요일은 파란색 (월간 칸 숫자, 일·주간 머리글)
-            dayCellTopInnerClass={(info) => weekendClass(info.dow)}
-            dayHeaderInnerClass={(info) => (info.view.type.startsWith("dayGrid") ? "" : weekendClass(info.dow))}
+            // 월간 칸 숫자: "9일" 대신 "9", 오늘은 빨간 동그라미, 다른 달 칸은 흐리게.
+            // 일요일 숫자는 빨간색, 토요일은 파란색.
+            dayCellClass={(info) => (info.isOther ? "daypath-other-month" : "")}
+            dayCellTopClass="daypath-daytop"
+            // 월간에서 고른 날은 반전 동그라미 (데스크톱은 숫자를 눌러 고른다)
+            dayCellTopContent={(info) => {
+              const isSelected = isMonth && !info.inPopover && toDateInput(info.date) === selected;
+              return (
+                <span
+                  className={`daypath-daynum ${
+                    info.isToday ? "is-today" : isSelected ? "is-selected" : weekendClass(info.dow)
+                  }`}
+                  aria-current={info.isToday ? "date" : undefined}
+                >
+                  {info.date.getDate()}
+                </span>
+              );
+            }}
+            // 일·주간 머리: 위에 요일, 아래 큰 숫자 (오늘은 빨간 동그라미). 월간 머리는 요일만.
+            dayHeaderContent={(info) =>
+              info.view.type.startsWith("dayGrid") ? (
+                <span className="daypath-weekday">{info.text}</span>
+              ) : (
+                <span className="daypath-dayhead">
+                  <span className={`daypath-dayhead-dow ${weekendClass(info.dow)}`}>
+                    {WEEKDAYS[info.dow]}
+                  </span>
+                  <span className={`daypath-daynum is-large ${info.isToday ? "is-today" : weekendClass(info.dow)}`}>
+                    {info.date.getDate()}
+                  </span>
+                </span>
+              )
+            }
             // 24시간 표기: 시간축 "08:00", 일정 시간 "14:30"
             slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
             eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-            scrollTime="08:00:00"
+            // 처음 열 때 지금 시각 2시간 전부터 보이게
+            scrollTime={scrollTime}
+            // 30분 칸 높이 (1시간 48px)
+            slotMinHeight={24}
             slotDuration="00:30:00"
             snapDuration="00:15:00"
             dayMaxEvents
@@ -376,7 +481,20 @@ export function CalendarView() {
             // 월간의 시간 일정도 점+글자 대신 테두리 블록으로 (색 점이 투명해지므로)
             eventDisplay="block"
             editable={interactive}
-            selectable={interactive}
+            selectable={interactive && !mobileMonth}
+            dateClick={mobileMonth ? handleDateClick : undefined}
+            // 모바일 월간은 "+N개 더보기" 대신 짧게 "+N"
+            moreLinkContent={mobileMonth ? (info) => `+${info.num}` : undefined}
+            moreLinkClass={mobileMonth ? "daypath-more" : undefined}
+            // 모바일 월간 "+N개": 팝업 대신 그날을 고른다 (같은 월간 보기로 이동 = 제자리)
+            moreLinkClick={
+              mobileMonth
+                ? (info) => {
+                    setSelected(toDateInput(info.date));
+                    return "dayGridMonth";
+                  }
+                : undefined
+            }
             selectMirror
             eventLongPressDelay={250}
             selectLongPressDelay={250}
@@ -388,15 +506,36 @@ export function CalendarView() {
             eventContent={renderItem}
           />}
 
-          {/* 빠른 추가 */}
-          <button
-            onClick={openNew}
-            aria-label="새 일정"
-            className="absolute bottom-5 right-5 z-10 flex size-12 items-center justify-center rounded-full bg-accent text-accent-fg shadow-lg hover:opacity-90"
-          >
-            <PlusIcon width={22} height={22} />
-          </button>
+          {/* 빠른 추가 (월간은 고른 날 목록의 [+ 새 일정]. 목록이 숨는 태블릿 폭에서는 보임) */}
+          {!mobileMonth && (
+            <button
+              onClick={() => openNew()}
+              aria-label="새 일정"
+              className={`absolute bottom-5 right-5 z-10 flex size-12 items-center justify-center rounded-full bg-accent text-accent-fg shadow-lg hover:opacity-90 ${
+                desktopMonth ? "lg:hidden" : ""
+              }`}
+            >
+              <PlusIcon width={22} height={22} />
+            </button>
+          )}
         </div>
+
+        {isMonth && (
+          <DayAgenda
+            className={
+              mobileMonth
+                ? "min-h-0 flex-1 border-t border-line px-4 pb-6 pt-3"
+                : // 1024px 미만(아이패드 세로 등)은 달력이 좁아지므로 숨긴다
+                  "hidden w-80 shrink-0 border-l border-line px-4 py-4 lg:block"
+            }
+            day={selected}
+            events={fcEvents}
+            onOpen={(p) =>
+              p.eventId && setEditor({ kind: "event", id: p.eventId, occurrenceDate: p.occurrenceDate })
+            }
+            onNew={() => openNew(selected)}
+          />
+        )}
       </div>
 
       {editor && <ItemEditor target={editor} onClose={() => setEditor(null)} />}
@@ -431,6 +570,100 @@ function IconButton({
     >
       {children}
     </button>
+  );
+}
+
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+/**
+ * 모바일 월간 아래: 고른 날의 일정 목록 + [+ 새 일정].
+ * 캘린더에 넘기는 일정(반복 회차 펼친 것, 필터 적용)을 그대로 써서 그날과 겹치는 것만 고른다.
+ */
+function DayAgenda({
+  className,
+  day,
+  events,
+  onOpen,
+  onNew,
+}: {
+  /** 놓는 자리(모바일: 달력 아래, 데스크톱: 오른쪽)에 맞춘 크기·테두리 */
+  className: string;
+  day: string;
+  events: EventInput[];
+  onOpen: (p: ItemProps) => void;
+  onNew: () => void;
+}) {
+  const dayStart = fromInputs(day);
+  const dayEnd = addDays(dayStart, 1);
+  const items = events
+    .map((ev) => {
+      const start = new Date(ev.start as string | Date);
+      const end = ev.end ? new Date(ev.end as string | Date) : addMinutes(start, 60);
+      return { ev, start, end };
+    })
+    .filter(({ start, end }) => start < dayEnd && end > dayStart)
+    .sort((a, b) => Number(!a.ev.allDay) - Number(!b.ev.allDay) || a.start.getTime() - b.start.getTime());
+  const label = dueLabel(day);
+  // "오늘" / "내일" / "어제"면 날짜도 함께
+  const heading = /\d/.test(label)
+    ? label
+    : `${dayStart.getMonth() + 1}월 ${dayStart.getDate()}일 (${WEEKDAYS[dayStart.getDay()]}) · ${label}`;
+
+  return (
+    <section className={`overflow-y-auto ${className}`} aria-label="고른 날 일정">
+      <h2 className="mb-2 text-sm font-semibold">{heading}</h2>
+      {items.length === 0 && <p className="py-2 text-sm text-fg-faint">일정이 없어요.</p>}
+      <ul className="space-y-1.5">
+        {items.map(({ ev, start, end }) => {
+          const p = ev.extendedProps as ItemProps;
+          // 여러 날에 걸친 시간 일정은 그날 밖으로 이어지는 쪽을 "··"로
+          const time = ev.allDay
+            ? "종일"
+            : `${start >= dayStart ? timeLabel(start.toISOString()) : "··"} ~ ${
+                end <= dayEnd ? timeLabel(end.toISOString()) : "··"
+              }`;
+          return (
+            <li key={String(ev.id)}>
+              <button
+                onClick={() => onOpen(p)}
+                className="flex w-full items-stretch gap-3 rounded-lg border border-line px-3 py-2.5 text-left hover:bg-bg-hover"
+              >
+                <span className="w-[84px] shrink-0 text-xs tabular-nums leading-5 text-fg-muted">{time}</span>
+                <span
+                  className="w-[3px] shrink-0 rounded-full"
+                  style={{ background: colorVar(p.catColor) }}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <span className="truncate text-[15px] font-medium leading-5">{ev.title}</span>
+                    {p.recurring && (
+                      <RepeatIcon width={12} height={12} className="shrink-0 text-fg-faint" aria-label="반복" />
+                    )}
+                  </span>
+                  {!!p.tags?.length && (
+                    <span className="mt-1 flex flex-wrap gap-x-2.5 gap-y-0.5 text-xs text-fg-muted">
+                      {p.tags.map((t, i) => (
+                        <span key={i} className="flex items-center gap-1">
+                          <span className="size-[7px] rounded-full" style={{ background: colorVar(t.color) }} />
+                          {t.name}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <button
+        onClick={onNew}
+        className="mt-3 flex w-full items-center gap-2 rounded-lg border border-dashed border-line px-3 py-2.5 text-sm text-fg-muted hover:border-line-strong hover:text-fg"
+      >
+        <PlusIcon width={16} height={16} /> 새 일정
+      </button>
+    </section>
   );
 }
 
