@@ -40,6 +40,30 @@ export type CalendarEvent = {
   series_id: string | null;
   /** 떼어 낸 회차가 원래 몇 월 며칠 회차였는지 "YYYY-MM-DD" */
   original_date: string | null;
+  /**
+   * 알림 (분). 시간 일정: 시작 몇 분 전(0 = 정시).
+   * 종일 일정: 그날 "종일 알림 시각"에서 몇 분 전(0 = 당일, 1440 = 전날). 빈 배열이면 알림 없음.
+   */
+  reminders: number[];
+};
+
+/** 알림 설정 (모든 기기 공통, user_settings 테이블) */
+export type NotifySettings = {
+  /** 새 시간 일정의 기본 알림 (분 전) */
+  event_reminders: number[];
+  /** 종일 일정 알림 시각 "HH:MM" */
+  allday_time: string;
+  /** 하루 할 일 묶음 알림 */
+  task_digest: boolean;
+  /** 할 일 알림 시각 "HH:MM" */
+  task_time: string;
+};
+
+export const DEFAULT_NOTIFY: NotifySettings = {
+  event_reminders: [10],
+  allday_time: "09:00",
+  task_digest: true,
+  task_time: "09:00",
 };
 
 /** 반복 관련 칸의 기본값 (예전 데이터·새 일정에 채워 넣을 때) */

@@ -37,6 +37,8 @@ export type Scoped = {
 type Store = Snapshot & {
   mode: "local" | "cloud";
   loading: boolean;
+  /** 데이터를 한 번이라도 제대로 불러왔는지 (불러오기 실패로 빈 상태면 false) */
+  ready: boolean;
   error: string | null;
   clearError(): void;
 
@@ -76,14 +78,19 @@ function toggleIn(list: string[], id: string): string[] {
 export function DataProvider({ children }: { children: ReactNode }) {
   const [snap, setSnap] = useState<Snapshot>(EMPTY);
   const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Record<Kind, Filter>>({ event: NO_FILTER, task: NO_FILTER });
 
   const reload = useCallback(async () => {
     try {
       setSnap(await repo.load());
+      setReady(true);
     } catch (e) {
-      if (e instanceof MissingTableError) setSnap(e.partial);
+      if (e instanceof MissingTableError) {
+        setSnap(e.partial);
+        setReady(true);
+      }
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
@@ -157,6 +164,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       ...snap,
       mode: repo.mode,
       loading,
+      ready,
       error,
       clearError: () => setError(null),
 
@@ -264,7 +272,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       scoped,
     };
-  }, [snap, loading, error, run, scoped]);
+  }, [snap, loading, ready, error, run, scoped]);
 
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }

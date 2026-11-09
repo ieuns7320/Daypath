@@ -52,7 +52,7 @@ function readLocal(): Snapshot {
     const parsed = JSON.parse(raw) as Partial<Snapshot>;
     return {
       // 예전 데이터에는 반복 칸이 없으므로 기본값을 채운다
-      events: (parsed.events ?? []).map((e) => ({ ...NO_RECURRENCE, ...e })),
+      events: (parsed.events ?? []).map((e) => ({ ...NO_RECURRENCE, ...e, reminders: e.reminders ?? [] })),
       tasks: parsed.tasks ?? [],
       // 예전 카테고리·태그에는 kind가 없다 → 캘린더용
       categories: (parsed.categories ?? []).map((c) => ({ ...c, kind: c.kind ?? "event" })),
@@ -120,13 +120,21 @@ function toEvent(r: Record<string, unknown>): CalendarEvent {
     exdates: (r.exdates as string[] | null) ?? [],
     series_id: (r.series_id as string | null) ?? null,
     original_date: (r.original_date as string | null) ?? null,
+    reminders: (r.reminders as number[] | null) ?? [],
   };
 }
 
 /** 003_recurrence.sql 실행 전 DB에는 반복 칸이 없으므로, 저장할 때 그 칸을 뺀다 */
-function withoutRecurrence(e: CalendarEvent) {
+function withoutRecurrence<T extends Partial<CalendarEvent>>(e: T) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { rrule, exdates, series_id, original_date, ...rest } = e;
+  return rest;
+}
+
+/** 005_notifications.sql 실행 전 DB에는 알림 칸이 없으므로, 저장할 때 그 칸을 뺀다 */
+function withoutReminders<T extends Partial<CalendarEvent>>(e: T) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { reminders, ...rest } = e;
   return rest;
 }
 
@@ -182,9 +190,14 @@ function cloudRepo(): Repo {
   // 나중에 추가한 칸이 DB에 있는지 (load 때 확인). 없으면 저장할 때 그 칸을 뺀다.
   let hasRecurrence = true;
   let hasKind = true;
+  let hasReminders = true;
   const prepare = <T extends TableName>(table: T, row: TableRow[T]): TableRow[T] => {
-    if (table === "events" && !hasRecurrence)
-      return withoutRecurrence(row as CalendarEvent) as unknown as TableRow[T];
+    if (table === "events") {
+      let e: Partial<CalendarEvent> = row as CalendarEvent;
+      if (!hasRecurrence) e = withoutRecurrence(e);
+      if (!hasReminders) e = withoutReminders(e);
+      return e as unknown as TableRow[T];
+    }
     if ((table === "categories" || table === "tags") && !hasKind)
       return withoutKind(row as Category | Tag) as unknown as TableRow[T];
     return row;
@@ -192,13 +205,14 @@ function cloudRepo(): Repo {
   return {
     mode: "cloud",
     async load() {
-      const [ev, task, cat, tag, rec, kind] = await Promise.all([
+      const [ev, task, cat, tag, rec, kind, rem] = await Promise.all([
         db.from("events").select("*"),
         db.from("tasks").select("*"),
         db.from("categories").select("*").order("sort_order"),
         db.from("tags").select("*").order("name"),
         db.from("events").select("rrule").limit(1),
         db.from("categories").select("kind").limit(1),
+        db.from("events").select("reminders").limit(1),
       ]);
       check(ev.error);
       check(cat.error);
@@ -225,9 +239,11 @@ function cloudRepo(): Repo {
       // 나중에 추가한 칸이 없으면(마이그레이션 전) 그 기능 없이 계속 쓰고 안내만 한다
       hasRecurrence = !rec.error;
       hasKind = !kind.error;
+      hasReminders = !rem.error;
       const missing = [
         rec.error && "003_recurrence.sql(반복 일정)",
         kind.error && "004_split_categories.sql(캘린더·할 일 카테고리 분리)",
+        rem.error && "005_notifications.sql(알림)",
       ].filter(Boolean);
       if (missing.length) {
         throw new MissingTableError(

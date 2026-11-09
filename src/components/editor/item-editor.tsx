@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useNotify } from "@/lib/data/notify";
 import { newId, useScoped, useStore } from "@/lib/data/store";
+import { ALLDAY_DEFAULT, ALLDAY_OPTIONS, TIMED_OPTIONS, reminderLabel } from "@/lib/reminders";
 import {
   addDays,
   addMinutes,
@@ -48,6 +50,10 @@ const inputCls =
 /** 일정·할 일 추가/수정 창. 데스크톱은 가운데 팝업, 모바일은 아래에서 올라오는 시트. */
 export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose: () => void }) {
   const store = useStore();
+  const notify = useNotify();
+  /** 새 일정·종일 전환 때 쓰는 기본 알림 */
+  const defaultReminders = (allDayMode: boolean) =>
+    allDayMode ? ALLDAY_DEFAULT : notify.settings.event_reminders;
 
   const existingEvent = target.kind === "event" ? store.events.find((e) => e.id === target.id) : undefined;
   const existingTask = target.kind === "task" ? store.tasks.find((t) => t.id === target.id) : undefined;
@@ -107,6 +113,7 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
       evStartTime: toTimeInput(evStart),
       evEndDate: toDateInput(evEnd),
       evEndTime: toTimeInput(evEnd),
+      reminders: existingEvent?.reminders ?? defaultReminders(evAllDay),
       done: existingTask?.done ?? false,
       hasDay: day !== null,
       day: day ?? todayInput(),
@@ -124,6 +131,7 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
   const [startTime, setStartTime] = useState(init.evStartTime);
   const [endDate, setEndDate] = useState(init.evEndDate);
   const [endTime, setEndTime] = useState(init.evEndTime);
+  const [reminders, setReminders] = useState<number[]>(init.reminders);
   // 할 일
   const [done, setDone] = useState(init.done);
   const [hasDay, setHasDay] = useState(init.hasDay);
@@ -195,6 +203,7 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
         exdates: existingEvent?.exdates ?? [],
         series_id: existingEvent?.series_id ?? null,
         original_date: existingEvent?.original_date ?? null,
+        reminders: [...reminders].sort((a, b) => a - b),
       };
       if (existingEvent && occDate) {
         // 반복 회차: 범위를 물은 뒤 저장 (규칙을 바꿨으면 "이 일정만"은 없음)
@@ -358,7 +367,11 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
                 <input
                   type="checkbox"
                   checked={allDay}
-                  onChange={(e) => setAllDay(e.target.checked)}
+                  onChange={(e) => {
+                    setAllDay(e.target.checked);
+                    // 시간 일정과 종일 일정은 알림 선택지가 달라서 기본값으로 바꾼다
+                    setReminders(defaultReminders(e.target.checked));
+                  }}
                   className="size-4 accent-[var(--accent)]"
                 />
                 종일
@@ -374,6 +387,14 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
                   custom={custom}
                   onPreset={changePreset}
                   onCustom={changeCustom}
+                />
+              )}
+              {notify.available && (
+                <ReminderField
+                  allDay={allDay}
+                  alldayTime={notify.settings.allday_time}
+                  value={reminders}
+                  onChange={setReminders}
                 />
               )}
             </div>
@@ -618,6 +639,42 @@ function RepeatField({
           <p className="text-xs text-fg-faint">{describeRule({ ...custom, byday: days }, start)}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 알림: 없음 + 여러 시점 중 고르기 (시간 일정: 정시~하루 전, 종일 일정: 당일·전날) */
+export function ReminderField({
+  allDay,
+  alldayTime,
+  value,
+  onChange,
+  label = "알림",
+}: {
+  allDay: boolean;
+  alldayTime: string;
+  value: number[];
+  onChange: (next: number[]) => void;
+  label?: string;
+}) {
+  const options = allDay ? ALLDAY_OPTIONS : TIMED_OPTIONS;
+  return (
+    <div className="flex items-start gap-2">
+      <span className="w-12 shrink-0 pt-1.5 text-xs text-fg-faint">{label}</span>
+      <div className="flex flex-wrap gap-1.5">
+        <Chip selected={value.length === 0} onClick={() => onChange([])}>
+          없음
+        </Chip>
+        {options.map((m) => (
+          <Chip
+            key={m}
+            selected={value.includes(m)}
+            onClick={() => onChange(value.includes(m) ? value.filter((x) => x !== m) : [...value, m])}
+          >
+            {reminderLabel(m, allDay, alldayTime)}
+          </Chip>
+        ))}
+      </div>
     </div>
   );
 }

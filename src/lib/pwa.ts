@@ -49,14 +49,14 @@ export function subscribeInstall(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-function isStandalone(): boolean {
+export function isStandalone(): boolean {
   return (
     window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   );
 }
 
-function isIOS(): boolean {
+export function isIOS(): boolean {
   const ua = navigator.userAgent;
   // iPadOS Safari는 "Macintosh"로 나타나므로 터치 지원으로 구분
   return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);

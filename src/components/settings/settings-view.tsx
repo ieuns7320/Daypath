@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { useTheme } from "next-themes";
+import { useNotify } from "@/lib/data/notify";
 import { newId, useScoped, useStore } from "@/lib/data/store";
+import { disablePush, enablePush, getPushState, sendTestPush, type PushState } from "@/lib/push";
+import { ReminderField } from "../editor/item-editor";
 import { getInstallState, promptInstall, subscribeInstall, type InstallState } from "@/lib/pwa";
 import { supabase } from "@/lib/data/supabase";
 import { COLOR_KEYS, COLOR_LABELS, colorVar, type ColorKey } from "@/lib/palette";
@@ -17,6 +20,7 @@ export function SettingsView() {
         <ThemeSection />
         <LabelsSection />
         <InstallSection />
+        <NotifySection />
         <AccountSection />
       </div>
     </div>
@@ -360,6 +364,176 @@ function InstallSection() {
         </p>
       )}
     </Section>
+  );
+}
+
+/* ---------- 알림 ---------- */
+
+const btnCls = "rounded-md border border-line px-3 py-1.5 text-sm hover:bg-bg-hover disabled:opacity-50";
+
+function NotifySection() {
+  const { mode } = useStore();
+  const { settings, available, saveSettings } = useNotify();
+  const [push, setPush] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!available) return;
+    void getPushState().then(setPush);
+  }, [available]);
+
+  if (mode === "local") {
+    return (
+      <Section title="알림">
+        <p className="text-sm text-fg-muted">알림은 로그인해서 클라우드 동기화를 쓸 때만 받을 수 있어요.</p>
+      </Section>
+    );
+  }
+  if (!available) {
+    return (
+      <Section title="알림">
+        <p className="text-sm leading-6 text-fg-muted">
+          Supabase SQL Editor에서 <code className="text-fg">supabase/migrations/005_notifications.sql</code>을
+          실행하면 알림을 쓸 수 있어요.
+        </p>
+      </Section>
+    );
+  }
+
+  /** 버튼 동작 공통: 실행 중 표시 + 결과 메시지 + 상태 새로 읽기 */
+  const act = async (fn: () => Promise<void>, done: string) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await fn();
+      setMessage(done);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPush(await getPushState());
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="알림">
+      <div className="space-y-5">
+        {/* 이 기기 */}
+        <div className="space-y-2">
+          {push === "needs-install" ? (
+            <p className="text-sm leading-6 text-fg-muted">
+              iPhone·iPad는 <b className="font-medium text-fg">홈 화면에 추가한 앱</b>에서만 알림을 받을 수
+              있어요. 위 &lsquo;앱 설치&rsquo;대로 추가한 뒤 그 앱에서 알림을 켜 주세요.
+            </p>
+          ) : push === "unsupported" ? (
+            <p className="text-sm text-fg-muted">이 브라우저는 알림을 지원하지 않아요.</p>
+          ) : push === "denied" ? (
+            <p className="text-sm leading-6 text-fg-muted">
+              알림이 차단되어 있어요. 브라우저(또는 기기 설정 &gt; 알림)에서 Daypath 알림을 허용한 뒤 다시
+              열어 주세요.
+            </p>
+          ) : push === "on" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-1 text-sm">이 기기에서 알림을 받고 있어요.</span>
+              <button
+                disabled={busy}
+                onClick={() => void act(sendTestPush, "1분 안에 테스트 알림이 와요.")}
+                className={btnCls}
+              >
+                테스트 알림
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => void act(disablePush, "이 기기의 알림을 껐어요.")}
+                className={`${btnCls} text-fg-muted`}
+              >
+                끄기
+              </button>
+            </div>
+          ) : push === "off" ? (
+            <button
+              disabled={busy}
+              onClick={() => void act(enablePush, "이 기기에서 알림을 켰어요.")}
+              className={btnCls}
+            >
+              이 기기에서 알림 켜기
+            </button>
+          ) : null}
+          {message && <p className="text-xs text-fg-muted">{message}</p>}
+          <p className="text-xs leading-5 text-fg-faint">
+            알림은 기기마다 켜요. 아래 설정은 모든 기기에 같이 적용돼요. 앱을 30일 넘게 열지 않으면 그
+            뒤 알림은 멈춰요.
+          </p>
+        </div>
+
+        {/* 기본값 (모든 기기 공통) */}
+        <div className="space-y-3">
+          <ReminderField
+            label="새 일정"
+            allDay={false}
+            alldayTime={settings.allday_time}
+            value={settings.event_reminders}
+            onChange={(v) => void saveSettings({ event_reminders: [...v].sort((a, b) => a - b) })}
+          />
+          <TimeRow
+            label="종일 일정"
+            hint="당일 알림 시각"
+            value={settings.allday_time}
+            onChange={(v) => void saveSettings({ allday_time: v })}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-12 shrink-0 text-xs text-fg-faint">할 일</span>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+              <input
+                type="checkbox"
+                checked={settings.task_digest}
+                onChange={(e) => void saveSettings({ task_digest: e.target.checked })}
+                className="size-4 accent-[var(--accent)]"
+              />
+              하는 날
+            </label>
+            <input
+              type="time"
+              step={300}
+              value={settings.task_time}
+              disabled={!settings.task_digest}
+              onChange={(e) => e.target.value && void saveSettings({ task_time: e.target.value })}
+              className="rounded-md border border-line bg-bg px-2 py-1 text-sm outline-none focus:border-fg-muted disabled:opacity-50"
+              aria-label="할 일 알림 시각"
+            />
+            <span className="text-xs text-fg-faint">그날 할 일을 묶어서 한 번</span>
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function TimeRow({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-12 shrink-0 text-xs text-fg-faint">{label}</span>
+      <input
+        type="time"
+        step={300}
+        value={value}
+        onChange={(e) => e.target.value && onChange(e.target.value)}
+        className="rounded-md border border-line bg-bg px-2 py-1 text-sm outline-none focus:border-fg-muted"
+        aria-label={`${label} ${hint}`}
+      />
+      <span className="text-xs text-fg-faint">{hint}</span>
+    </div>
   );
 }
 

@@ -4,7 +4,7 @@
 
 - 작성일: 2026-11-06
 - 최종 수정: 2026-11-09
-- 상태: **3단계 진행 중**: 3a 반복 일정 완료, 캘린더·할 일 분리 완료, 3b 배포·PWA 완료(https://daypath-ten.vercel.app), 다음은 3c 알림 ([10.7](#107-3단계-시작-전에-사용자와-정할-것))
+- 상태: **3단계 진행 중**: 3a 반복 일정 완료, 캘린더·할 일 분리 완료, 3b 배포·PWA 완료(https://daypath-ten.vercel.app), 3c 알림 코드 완료·설정 대기 ([10.7](#107-3단계-시작-전에-사용자와-정할-것))
 - 다른 PC에서 이어서 작업할 때: [10. 다른 PC에서 이어서 작업하기](#10-다른-pc에서-이어서-작업하기)
 - 작업 규칙: 작업이 끝날 때마다 새로 정한 내용을 이 문서에 반영한다. 결정 이력은 [11. 결정 기록](#11-결정-기록)에 쌓는다.
 
@@ -140,6 +140,10 @@
 | `categories` | id, user_id, name, color, sort_order, created_at. `004_split_categories.sql`: kind `text` (`'event'`/`'task'`, 기본 `'event'`) |
 | `tags` | id, user_id, name, color, created_at. `004`: kind (위와 같음) |
 | `events` | id, user_id, title, start_at, end_at, all_day, category_id → categories (삭제 시 null), tag_ids `uuid[]`, memo, created_at, updated_at. 3a(`003_recurrence.sql`): rrule `text`, exdates `date[]`, series_id → events (삭제 시 cascade), original_date `date` |
+| `events` (3c, `005_notifications.sql`) | reminders `integer[]` (기본 `'{}'` = 알림 없음). 시간 일정: 시작 몇 분 전, 종일 일정: 종일 알림 시각에서 몇 분 전(0 당일, 1440 전날) |
+| `user_settings` (3c) | user_id(PK), event_reminders `integer[]`(기본 `{10}`), allday_time·task_time `text "HH:MM"`(기본 09:00), task_digest `boolean`(기본 true), updated_at. 모든 기기 공통 알림 설정 |
+| `push_subscriptions` (3c) | endpoint(PK), user_id, p256dh, auth, user_agent, created_at. 기기별 푸시 구독. 등록은 RPC `register_push_subscription`(같은 기기를 다른 계정이 쓰던 경우 옮김) |
+| `push_queue` (3c) | id, user_id, send_at, title, body, url, kind(`auto`/`test`), sent_at. 보낼 알림 예약. 앱은 RPC `replace_push_queue(items)`로 아직 안 보낸 `auto` 예약을 통째로 바꾸고, `queue_test_push()`로 테스트를 넣는다. 보낸 지 2일 지난 행은 지운다 |
 | `tasks` (2단계, `002_tasks.sql`) | id, user_id, title, due_date `date`, scheduled_start·scheduled_end `timestamptz`, done, done_at, category_id → categories (삭제 시 null), tag_ids `uuid[]`, memo, created_at, updated_at |
 
 - 스키마 변경은 `supabase/migrations/`에 번호를 붙인 SQL 파일로 추가하고, Supabase SQL Editor에서 순서대로 실행한다. `schema.sql`은 1단계 기본 테이블이다.
@@ -257,6 +261,12 @@
   - 반복 회차를 누르면 그 회차의 날짜·시각으로 창이 열린다. 저장·삭제할 때 범위 선택 창(이 일정만 / 이후 모든 일정 / 전체 일정 / 취소)이 뜬다. 반복 규칙을 바꿨으면 "이 일정만"은 고를 수 없다.
   - 따로 고친 회차는 반복 칸 대신 "반복 일정에서 이 회차만 따로 고친 일정이에요."를 보여 준다.
   - 범위 선택 창에서 Esc는 선택 창만 닫는다(편집 창은 그대로).
+- 3c 알림 (일정 모드만, 005 실행 후에만 보임): "알림" 줄에 칩 [없음] + 여러 개 선택
+  - 시간 일정: 정시 / 5분 / 10분 / 30분 / 1시간 / 1일 전. 새 일정 기본값은 설정의 "새 일정" 값(처음 10분 전)
+  - 종일 일정: 당일 09:00 / 전날 09:00 (시각은 설정의 종일 일정 알림 시각). 새 종일 일정 기본값은 당일
+  - 종일 ↔ 시간 일정으로 바꾸면 선택지가 달라서 그 종류의 기본값으로 바뀐다
+  - 반복 일정의 알림은 모든 회차에 같이 적용된다(따로 고친 회차는 자기 값)
+  - 005 이전에 만든 일정은 알림이 없다(기본값을 일괄 적용하지 않음)
 
 ### 5.4 할 일 탭 (2026-11-09 개편)
 
@@ -303,7 +313,12 @@
 
 - 테마: 시스템 / 라이트 / 다크
 - 카테고리·태그 관리: 위에 [캘린더 | 할 일] 전환, 고른 쪽의 카테고리(이름, 색상, 순서)와 태그(이름, 색상)만 보인다. 새로 만들면 고른 쪽 것이 된다. 전환 상태는 저장하지 않는다(처음엔 캘린더).
-- 알림 권한 및 기본 알림 시점 (3단계)
+- 앱 설치 (3b): 설치 버튼 / iOS 안내 / 설치됨
+- 알림 (3c):
+  - 로컬 모드면 "로그인해서 클라우드 동기화를 쓸 때만" 안내, 005 실행 전이면 실행 안내
+  - 이 기기: [이 기기에서 알림 켜기] → 켜지면 "이 기기에서 알림을 받고 있어요." [테스트 알림] [끄기]. iPhone·iPad Safari면 "홈 화면에 추가한 앱에서만" 안내, 차단했으면 기기 설정에서 허용 안내, 미지원 브라우저 안내
+  - 모든 기기 공통: 새 일정 기본 알림(칩 여러 개), 종일 일정 알림 시각, 할 일 [☑ 하는 날] 시각(그날 할 일을 묶어서 한 번)
+  - "앱을 30일 넘게 열지 않으면 그 뒤 알림은 멈춰요" 안내
 - 계정 (로그아웃)
 - 카테고리·태그는 목록에서 이름을 바로 고치고(Enter/포커스 해제 시 저장), 왼쪽 표시를 눌러 색을 바꾼다.
 - 삭제: ✕를 누르면 그 행 아래에 "'이름'을(를) 삭제할까요? …" 안내와 [취소] [삭제] 버튼이 나온다. 브라우저 기본 `confirm()` 창은 쓰지 않는다(앱 안 브라우저·PWA에서 막혀 삭제가 안 되는 문제가 있었음).
@@ -319,11 +334,28 @@
 
 | 대상 | 알림 시점 |
 |---|---|
-| 일정 | 정시, 10분 전, 1시간 전, 하루 전 등 (여러 개 선택) |
-| 할 일 | 하는 날 아침(기본 09:00) |
+| 일정 (시간) | 일정마다 여러 개: 정시, 5분, 10분, 30분, 1시간, 1일 전. 새 일정 기본 10분 전(설정에서 변경) |
+| 일정 (종일) | 당일 09:00 또는 전날 09:00 (시각은 설정에서 변경). 새 종일 일정 기본 당일 |
+| 할 일 | 하는 날 09:00에 **그날 할 일을 묶어서 한 번** ("오늘 할 일 3개" / "보고서, 운동, 장보기 외 2개"). 완료한 할 일은 빼고, 날짜 없는 할 일은 알리지 않는다. 설정에서 끄기·시각 변경 |
 
-- 서버 예약 작업(Supabase)이 정해진 시간에 Web Push 발송
 - **제약**: iPhone/iPad는 PWA를 "홈 화면에 추가"해야 푸시 수신 가능 (iOS 16.4 이상)
+- 알림 본문: 시간 일정은 "10분 뒤 · 14:30"(정시는 "지금 시작 · 14:30"), 종일 일정은 "오늘 종일 일정"/"내일 종일 일정". 누르면 열린 앱 창으로 가거나 새로 연다(캘린더 / 할 일 탭).
+
+### 동작 방식 (3c, 2026-11-09)
+
+1. 앱(브라우저): 일정·할 일·설정이 바뀌거나 앱을 열면 `lib/reminders.ts`의 `buildQueue`가 반복 회차까지 펼쳐 앞으로 30일치 알림을 계산하고, RPC `replace_push_queue`로 Supabase `push_queue`에 통째로 넘긴다.
+2. Supabase: pg_cron이 1분마다 `send_due_pushes()`를 실행한다. 보낼 때가 된 예약과 그 계정의 기기 구독을 묶어 pg_net으로 Vercel `/api/push`에 POST한다.
+3. Vercel `/api/push`: VAPID 키로 서명해 각 기기로 Web Push를 보낸다. 404/410(구독이 끝난 기기)은 RPC `remove_push_subscriptions`로 지운다.
+4. 기기: `public/sw.js`가 알림을 띄우고, 누르면 앱을 연다.
+
+- **예약 범위 30일**(사용자 선택): 반복 일정 계산이 앱 코드에만 있어서, 앱이 앞으로 30일치를 계산해 서버에 넘긴다. 어느 기기든 앱을 열면(그리고 열어 둔 동안 1시간마다) 다시 계산한다. **30일 넘게 앱을 열지 않으면 그 뒤 알림은 멈춘다.**
+- 동기화: 데이터가 처음 제대로 불러와진 뒤(`ready`)에만, 바뀐 뒤 2초 기다렸다가, 계산 결과가 지난번과 같으면 보내지 않는다(`lib/data/notify.tsx`). 불러오기 실패로 빈 데이터일 때 예약을 지우지 않게 하려는 것.
+- 예약 시각은 기기 로컬 시간으로 계산한 절대 시각(UTC 저장). 15분 넘게 늦어진 예약은 보내지 않는다.
+- Vercel `/api/push`는 DB를 읽지 않고, DB가 보낸 알림 하나 + 기기 구독 목록만 받아 서명해 보낸다. `x-push-secret` 헤더가 `PUSH_SECRET`과 같아야 한다. **service_role 키는 어디에도 쓰지 않는다.**
+- 비밀 값: Vercel 환경 변수 `NEXT_PUBLIC_VAPID_PUBLIC_KEY`·`VAPID_PRIVATE_KEY`·`PUSH_SECRET`(선택 `VAPID_SUBJECT`, 기본은 앱 주소). Supabase Vault `daypath_push_secret`(= PUSH_SECRET)·`daypath_app_url`. 키는 `node scripts/make-push-keys.mjs`로 만든다. git에 올리지 않는다.
+  - Vercel 화면(2026-11): 환경 변수는 **Settings → Environments → Production → Environment Variables**에 있다. 종류는 `NEXT_PUBLIC_VAPID_PUBLIC_KEY`만 **Config**(공개 값이라 Secret이면 경고가 뜨고 저장이 막힌다), `VAPID_PRIVATE_KEY`·`PUSH_SECRET`은 **Secret**. 비공개 값에는 `NEXT_PUBLIC_`을 붙이지 않는다(브라우저 코드에 들어감).
+  - `NEXT_PUBLIC_` 값은 빌드할 때 코드에 들어가므로, 바꾸면 다시 배포해야 반영된다.
+- 알림은 클라우드 모드 전용(로컬 모드는 서버가 없음).
 
 ---
 
@@ -342,7 +374,7 @@
 |---|---|---|
 | **1단계** | 프로젝트 세팅, 로그인/동기화, 일정 CRUD (종일·여러 날 포함), 카테고리·태그 (색상), 일간/주간/월간 보기, 드래그 이동·리사이즈, 다크 모드 | ✅ 완료 |
 | **2단계** | 할 일 탭 (완료 체크, 마감일), 캘린더에 할 일 표시, 타임 블로킹, 카테고리/태그 필터 | ✅ 완료 |
-| **3단계** | 3a 반복 일정 / 3b Vercel 배포·PWA 설치(아이콘·manifest·서비스 워커) / 3c 알림 (Web Push) | 진행 중: 3a ✅ 완료, 캘린더·할 일 분리 + 할 일 탭 개편 ✅ (2026-11-09), 3b 배포·PWA ✅ (2026-11-09), 3c 알림 다음 |
+| **3단계** | 3a 반복 일정 / 3b Vercel 배포·PWA 설치(아이콘·manifest·서비스 워커) / 3c 알림 (Web Push) | 진행 중: 3a ✅ 완료, 캘린더·할 일 분리 + 할 일 탭 개편 ✅ (2026-11-09), 3b 배포·PWA ✅ (2026-11-09), 3c 알림 코드 ✅ · 키·SQL 설정과 실제 발송 확인 남음 |
 | **4단계** | 로드맵 탭 (목표 → 마일스톤 → 일정/할 일 연결, 진행률, 트리/타임라인 보기) | |
 
 남은 일 (단계 무관):
@@ -381,7 +413,7 @@ DB는 클라우드(Supabase)에 있으므로 PC를 옮겨도 SQL을 다시 실�
 |---|---|
 | GitHub | `ieuns7320/Daypath`, 브랜치 `main` 하나 |
 | Supabase 프로젝트 | `xcbmvnhjowsuycfbapvn` (리전 서울) |
-| 실행한 SQL | `supabase/schema.sql`(1단계) ✅, `supabase/migrations/002_tasks.sql` ✅, `003_recurrence.sql` ✅, `004_split_categories.sql` ✅ (2026-11-09) |
+| 실행한 SQL | `supabase/schema.sql`(1단계) ✅, `supabase/migrations/002_tasks.sql` ✅, `003_recurrence.sql` ✅, `004_split_categories.sql` ✅ (2026-11-09), `005_notifications.sql` ⬜ **아직 실행 안 함** (Vault 비밀 값 2개도 함께) |
 | 로그인 | 이메일+비밀번호. 가입 시 확인 메일 필요(Supabase 기본값). 사용자 계정 1개 생성·확인 완료 |
 | Auth Site URL | `https://daypath-ten.vercel.app` (2026-11-09). Redirect URLs: `https://daypath-ten.vercel.app/**`, `http://localhost:3000/**` |
 | 배포 | Vercel 프로젝트 `daypath` (Hobby), **https://daypath-ten.vercel.app**. GitHub `main`에 push하면 자동 배포. 환경 변수 `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Production·Preview, Sensitive) |
@@ -401,7 +433,9 @@ DB는 클라우드(Supabase)에 있으므로 PC를 옮겨도 SQL을 다시 실�
 ### 10.4 코드 구조와 데이터 흐름
 
 ```
-app/(main)/layout.tsx   AuthGate(로그인) → DataProvider(데이터) → AppShell(사이드바·하단 탭)
+app/(main)/layout.tsx   AuthGate(로그인) → DataProvider(데이터) → NotifyProvider(알림 설정·예약) → AppShell(사이드바·하단 탭)
+app/api/push/route.ts   알림 발송 (pg_cron → pg_net이 호출, web-push로 서명·발송)
+app/manifest.ts         PWA manifest (아이콘 app/icon.svg, app/apple-icon.png, public/icons/)
 app/page.tsx            /calendar 로 이동
 app/(main)/*/page.tsx   각 탭. 캘린더·할 일은 *-client.tsx가 dynamic(ssr:false)로 감싼다
 lib/data/supabase.ts    환경 변수가 있으면 Supabase 클라이언트, 없으면 null
@@ -415,11 +449,16 @@ lib/date.ts             날짜 입력값 변환, 날짜 표시("내일", "11월 
 lib/tasks.ts            할 일 탭 계산: 날짜별 완료 현황(링), 밀린 할 일, 카테고리별 묶음
 lib/recurrence.ts       반복 규칙 읽기·쓰기, 기간 안 회차 펼치기(expandEvent), 프리셋·요약 문구
 lib/series.ts           반복 회차 범위별 수정·삭제 → { upserts, removes } 변경 목록
+lib/reminders.ts        알림 예약 계산(buildQueue, 30일), 알림 선택지·문구
+lib/push.ts             이 기기 푸시 구독 켜기·끄기·상태, 테스트 알림
+lib/pwa.ts              설치 상태(beforeinstallprompt), iOS·설치됨 판별
+lib/data/notify.tsx     NotifyProvider + useNotify(): 알림 설정(user_settings), 예약 동기화
+components/sw-register  서비스 워커 등록 + 설치 이벤트 붙잡기 (public/sw.js: 푸시 표시·클릭)
 components/calendar/    calendar-view(FullCalendar 설정·렌더, 일정만), calendar-theme.css
 components/editor/      item-editor: 일정·할 일 공용 편집 창 (body에 portal), scope-dialog: 반복 범위 선택 창
 components/tasks/       할 일 탭(tasks-view: 묶음·바로 추가), mini-month(진행률 링 미니 캘린더), task-row(행·⋯ 메뉴), 체크박스
 components/filter/      모바일 필터 버튼·시트
-components/settings/    테마, 카테고리·태그 관리, 로그아웃
+components/settings/    테마, 카테고리·태그 관리, 앱 설치, 알림, 로그아웃
 ```
 
 - 반복 일정: 캘린더는 보이는 기간(`datesSet`)만큼 회차를 펼쳐 FullCalendar id를 `event:<시리즈 id>@<날짜>`로 준다. 회차를 고치면 `series.ts`가 변경 목록을 만들고 `applyEventChanges`가 한 번에 저장한다.
@@ -443,7 +482,10 @@ components/settings/    테마, 카테고리·태그 관리, 로그아웃
 - 편집 창의 시간 입력칸은 브라우저 기본 컨트롤이라 OS 언어에 따라 오전/오후로 보인다 (8장 남은 일).
 - 모바일 일간 보기 제목("2026년 11월 6일")은 헤더가 좁아 잘릴 수 있다. 확인하지 않았다.
 - "Can't perform a React state update on a component that hasn't mounted yet" 에러는 마운트 후 렌더링으로 고쳤지만, 원래 재현이 잘 안 되던 문제라 다시 보이면 원인을 다시 본다 (2장 구현 시 주의).
-- 알림·로드맵은 아직 없다. 로드맵 탭은 "준비 중" 화면(`coming-soon.tsx`).
+- 로드맵은 아직 없다. 로드맵 탭은 "준비 중" 화면(`coming-soon.tsx`).
+- 3c 알림: 예약 계산(`buildQueue`)은 임시 스크립트로 확인했고(시간·종일·반복 회차·빠진 회차·할 일 묶음·지난 시각 제외), `/api/push`가 비밀 없는 요청을 403으로 막는 것까지 확인했다. **실제 발송(pg_cron → Vercel → 기기)은 사용자가 키·SQL을 설정한 뒤 확인해야 한다.**
+- VAPID 키를 바꾸면 기존 기기 구독이 맞지 않아 알림이 안 간다. 그때는 각 기기에서 알림을 끄고 다시 켠다.
+- 알림을 눌렀을 때 해당 날짜로 가지 않고 캘린더/할 일 탭만 연다.
 - 반복 일정은 로컬 모드(3001)에서만 확인했다. 003·004는 2026-11-09 클라우드에 실행했다. 클라우드에서 반복 일정 저장·실시간 동기화는 사용자가 쓰면서 확인한다.
 - 반복 회차는 기기 로컬 시간으로 펼친다. 시간대가 다른 기기에서 보거나 서머타임이 있는 지역에서는 시각이 어긋날 수 있다(지금은 한국만 써서 무시).
 - 반복 규칙 계산 테스트는 저장소에 없다(작업 중 임시 스크립트로만 확인). 테스트 도구를 넣을 때 `recurrence.ts`·`series.ts`부터 옮긴다.
@@ -556,3 +598,10 @@ components/settings/    테마, 카테고리·태그 관리, 로그아웃
 | 2026-11-09 | 설정에 **앱 설치** 칸 ([앱 설치] 버튼 / iOS 안내 / 설치됨) | 사용자 선택, iOS Safari는 설치 버튼이 없음 |
 | 2026-11-09 | 배포 주소는 Vercel 기본 `*.vercel.app` | 사용자 선택, 무료·설정 간단 |
 | 2026-11-09 | Vercel 배포 완료: `https://daypath-ten.vercel.app`, Supabase Site URL·Redirect URLs 변경 | 3b |
+| 2026-11-09 | 3c 일정 알림은 **일정마다 여러 개**(정시~1일 전), 새 일정 기본은 설정값(처음 10분 전) | 사용자 선택 |
+| 2026-11-09 | 종일 일정 알림은 **당일 09:00**(전날도 고를 수 있음, 시각은 설정) | 사용자 선택 |
+| 2026-11-09 | 할 일 알림은 **하는 날 하루 한 번 묶어서** | 사용자 선택, 할 일이 많아도 알림이 쌓이지 않게 |
+| 2026-11-09 | 알림 예약은 **앱이 30일치를 계산해 서버에 넘기는 방식**(push_queue), pg_cron 1분 + pg_net → Vercel `/api/push`(web-push) | 반복 계산이 앱에만 있음, service_role 키 없이 가능. 30일은 사용자 선택 |
+| 2026-11-09 | 알림 설정은 모든 기기 공통(`user_settings`), 켜기·끄기는 기기마다 | 기기마다 권한이 따로 |
+| 2026-11-09 | 005 이전 일정에는 알림 기본값을 일괄 적용하지 않음 | 갑자기 알림이 쏟아지지 않게 |
+| 2026-11-09 | Route Handler에 `export const runtime` 쓰지 않음 | Cache Components와 함께 쓸 수 없음(빌드 오류), Node가 기본 |
