@@ -23,6 +23,8 @@ npm run dev
 
 http://localhost:3000 에서 열린다.
 
+Node.js 20.9 이상(권장 24, `.nvmrc`)이 필요하다. Windows·macOS 모두 같은 방법으로 실행한다.
+
 `.env.local`이 없으면 **로컬 모드**로 동작한다. 데이터가 이 브라우저(localStorage)에만 저장되고 기기 간 동기화는 되지 않는다.
 
 이미 쓰고 있는 Supabase 프로젝트로 **다른 PC에서 이어서 작업**할 때는 아래 "Supabase 연결"을 다시 할 필요 없이 `.env.local`만 만들면 된다. 자세한 순서와 현재 상태는 [SPEC 10장](docs/SPEC.md#10-다른-pc에서-이어서-작업하기)을 본다.

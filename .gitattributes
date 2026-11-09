@@ -1,0 +1,8 @@
+# Windows PC와 맥북을 오가며 작업하므로 줄 끝을 LF로 통일한다 (저장소 안은 이미 모두 LF).
+* text=auto eol=lf
+
+# 바이너리
+*.png binary
+*.ico binary
+*.jpg binary
+*.webp binary

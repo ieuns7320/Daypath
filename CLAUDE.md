@@ -10,7 +10,7 @@
 
 ## 사용자에 대해
 
-- 개인용 앱을 직접 쓰려고 만드는 사람. 여러 PC(Windows 등)와 아이패드·휴대폰에서 쓴다.
+- 개인용 앱을 직접 쓰려고 만드는 사람. 회사 Windows PC와 집 맥북에서 번갈아 개발하고, 아이패드·휴대폰에서도 쓴다.
 - 화면 취향: 미니멀, 다크 모드, 24시간제, 한 주는 일요일 시작, 색은 칠하지 않고 테두리로 구분.
 - 요청이 모호하면(예: "가로 부분", "좁아 보여") 어느 부분인지 먼저 짧게 확인한다. 추측해서 다른 곳을 고치지 않는다.
 
@@ -39,4 +39,9 @@ npx next build     # 프로덕션 빌드 확인
 - 3000번(클라우드)에는 사용자의 실제 데이터가 있다. 확인용으로 만든 항목은 바로 지우고, 기존 데이터는 바꾸거나 지우지 않는다.
 - 사용자 대신 계정을 만들거나 비밀번호를 입력하지 않는다. Supabase secret / service_role 키는 받지도, `.env.local`에 넣지도 않는다.
 - 작업 확인 순서: 브라우저 화면(데스크톱·모바일 375px, 라이트/다크) → `npx tsc --noEmit` → `npx eslint src` → (큰 변경이면) `npx next build`.
-- 셸은 Windows(PowerShell / Git Bash)다. `git push`의 `NativeCommandError` 표시는 대개 성공이다.
+- 개발 PC는 **Windows와 macOS 둘 다**다. 지금 어느 쪽인지 환경 정보로 확인하고 그 셸 문법을 쓴다.
+  - Windows: PowerShell / Git Bash. `git push`의 `NativeCommandError` 표시는 대개 성공이다. curl은 `--ssl-no-revoke`가 필요할 수 있다.
+  - macOS: zsh. 위 두 가지는 해당 없다.
+  - 경로를 코드나 스크립트에 쓸 때는 `/`를 쓰고, 한쪽 OS에서만 되는 명령을 저장소 스크립트에 넣지 않는다.
+- 작업을 시작할 때 다른 PC에서 push한 것이 있을 수 있으니, 작업 전에 `git status`와 `git pull` 여부를 확인한다(사용자가 이미 했다고 하면 생략).
+- Claude의 메모리(`~/.claude/.../memory`)는 PC마다 따로다. 다른 PC에서도 알아야 하는 규칙·결정은 메모리가 아니라 이 파일이나 `docs/SPEC.md`에 적는다.

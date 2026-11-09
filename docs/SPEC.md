@@ -468,14 +468,24 @@
 
 ### 10.1 처음 세팅
 
-1. Git과 Node.js(20.9 이상, 지금 PC는 v24.11.1)를 설치한다.
+1. Git과 Node.js(20.9 이상, 권장 24 = `.nvmrc`)를 설치한다. Windows PC는 v24.11.1.
+   - macOS: `brew install git node@24` (또는 nvm이면 저장소에서 `nvm use`)
+   - Windows: git-scm.com, nodejs.org 설치 파일
 2. `git clone https://github.com/ieuns7320/Daypath.git` 후 `npm install`
-3. `.env.example`을 복사해 `.env.local`을 만들고 두 값을 넣는다. 값은 Supabase 대시보드 → Project Settings → API에서 확인한다.
+   - `package-lock.json`에 Windows·macOS(Apple Silicon·Intel)용 네이티브 패키지(sharp, Next SWC, Tailwind, lightningcss)가 모두 들어 있어 어느 쪽에서든 `npm install`만 하면 된다. lock 파일을 지우고 새로 만들지 않는다.
+3. `.env.example`을 복사해 `.env.local`을 만들고 두 값을 넣는다(`cp .env.example .env.local`). 값은 Supabase 대시보드 → Project Settings → API에서 확인한다. 다른 PC의 `.env.local`을 메신저·메일로 옮기지 않는다.
    - `NEXT_PUBLIC_SUPABASE_URL` = `https://xcbmvnhjowsuycfbapvn.supabase.co`
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = 대시보드의 **Publishable key** (`sb_publishable_...`). Secret / service_role 키는 절대 넣지 않는다.
 4. `npm run dev` → http://localhost:3000 에서 기존 계정(이메일+비밀번호)으로 로그인한다. 새 계정을 만들 필요 없다.
 5. 타입 검사 전에 한 번 `npx next typegen`을 실행한다(`LayoutProps` 같은 라우트 타입 생성).
-6. 작업을 시작할 때는 `git pull`, 끝낼 때는 커밋 후 `git push`를 한다.
+6. 작업을 시작할 때는 `git pull`, 끝낼 때는 커밋 후 `git push`를 한다. **PC를 옮기기 전에 push하지 않으면 다른 PC에서 그 작업이 안 보인다.**
+7. Claude Code는 저장소 폴더에서 연다. `CLAUDE.md` → 이 문서 순서로 읽으므로 대화가 이어지지 않아도 맥락을 잡는다. Claude 메모리는 PC마다 따로라서 공통 규칙은 `CLAUDE.md`·이 문서에만 둔다.
+
+**PC 간 공통 설정 (2026-11-09)**
+- 줄 끝: `.gitattributes`로 **LF 통일**(`* text=auto eol=lf`). Windows의 `core.autocrlf=true`여도 저장소에는 LF로 들어간다. 커밋 때 "LF will be replaced by CRLF" 경고는 무시해도 된다.
+- Node 버전: `.nvmrc` = 24.
+- `.claude/launch.json`의 두 서버(3000 클라우드, 3001 로컬 모드)는 macOS에서도 그대로 쓴다(`npx`를 셸로 실행).
+- 로컬 모드 데이터(`daypath:v1`)와 할 일 칸 너비 같은 브라우저 저장값은 기기·브라우저마다 따로다(10.5). 클라우드 데이터는 같다.
 
 DB는 클라우드(Supabase)에 있으므로 PC를 옮겨도 SQL을 다시 실행할 필요가 없다. 새 마이그레이션 파일이 생겼을 때만 그 파일을 실행한다.
 
@@ -501,6 +511,7 @@ DB는 클라우드(Supabase)에 있으므로 PC를 옮겨도 SQL을 다시 실�
 - 개발 중 콘솔의 `Route "/calendar": Could not validate that a segment in your UI has instant navigation` 에러는 Next 16 개발 모드의 검사 메시지다. 모든 탭에서 나오고 동작에는 영향이 없어 지금은 무시한다. 원인은 아직 확인하지 않았다(브라우저 전용 렌더링 `dynamic(..., { ssr: false })` 때문으로 추정). 없애려면 각 페이지에 `export const instant = false`를 두는 방법이 메시지에 안내되어 있다.
 - `next dev`가 `AGENTS.md`를 다시 써 넣을 수 있다. 내용이 같으면 그대로 커밋해도 된다.
 - Windows 메모: PowerShell에서 `git push`가 빨간 `NativeCommandError`를 보여도 git이 stderr에 진행 상황을 쓴 것뿐이라 성공일 수 있다(출력의 `main -> main` 확인). curl은 `--ssl-no-revoke`가 필요할 수 있다.
+- macOS 메모: 셸은 zsh. 위 Windows 메모는 해당 없다. 3000·3001 포트가 남아 있으면 `lsof -ti :3000 | xargs kill`로 끈다. 아이콘 스크립트(`scripts/make-icons.mjs`)의 sharp도 macOS에서 그대로 돈다.
 
 ### 10.4 코드 구조와 데이터 흐름
 
@@ -711,3 +722,4 @@ components/settings/    테마, 카테고리·태그 관리, 앱 설치, 알림,
 | 2026-11-09 | 모바일 월간 달력을 줄 없이 가운데 숫자·흐린 요일·"+N" 글자로 가볍게 | 사용자 요청, 칸 줄·굵은 숫자·칠한 다른 달 칸 때문에 아래 목록보다 투박해 보였음 |
 | 2026-11-09 | 데스크톱 월간 오른쪽에도 고른 날 일정 목록, 날짜 숫자를 눌러 고름(빈 칸은 그대로 새 일정) | 사용자 요청(모바일처럼). 빈 칸 클릭으로 새 일정 만드는 기존 동작은 유지 |
 | 2026-11-09 | 1024px 미만에서는 데스크톱 월간 목록을 숨기고 + 버튼 표시 | 아이패드 세로에서 사이드바 + 목록이면 달력이 너무 좁음 |
+| 2026-11-09 | Windows PC·맥북을 오가며 개발: `.gitattributes`로 LF 통일, `.nvmrc`(24), CLAUDE.md·SPEC 10.1/10.3에 macOS 안내 | 사용자 요청(집에서 맥북으로 이어서 작업) |
