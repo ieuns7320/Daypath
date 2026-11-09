@@ -362,6 +362,9 @@ export function CalendarView() {
             // 시간축 칸 너비는 안에 든 글자 폭으로 정해지므로, 글자에 좌우 여백을 줘서 넓힌다
             slotHeaderInnerClass="daypath-axis-label"
             allDayHeaderInnerClass="daypath-axis-label"
+            // 일요일 날짜 숫자는 빨간색, 토요일은 파란색 (월간 칸 숫자, 일·주간 머리글)
+            dayCellTopInnerClass={(info) => weekendClass(info.dow)}
+            dayHeaderInnerClass={(info) => (info.view.type.startsWith("dayGrid") ? "" : weekendClass(info.dow))}
             // 24시간 표기: 시간축 "08:00", 일정 시간 "14:30"
             slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
             eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
@@ -429,4 +432,9 @@ function IconButton({
       {children}
     </button>
   );
+}
+
+/** 주말 날짜 숫자 색: 일요일 빨강, 토요일 파랑 */
+function weekendClass(dow: number): string {
+  return dow === 0 ? "daypath-sunday" : dow === 6 ? "daypath-saturday" : "";
 }

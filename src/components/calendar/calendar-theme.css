@@ -131,3 +131,13 @@ html:root {
   border-radius: 999px;
   background: var(--tag-color);
 }
+
+/* 일요일 날짜 숫자 */
+.daypath-sunday {
+  color: var(--danger);
+}
+
+/* 토요일 날짜 숫자 */
+.daypath-saturday {
+  color: var(--c-blue);
+}

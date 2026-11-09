@@ -105,6 +105,7 @@ function DayCell({
   onClick: () => void;
 }) {
   const day = Number(date.slice(8));
+  const dow = new Date(`${date}T00:00`).getDay();
   const label = `${Number(date.slice(5, 7))}월 ${day}일${
     stat ? `, 할 일 ${stat.total}개 중 ${stat.done}개 완료` : ""
   }`;
@@ -122,7 +123,11 @@ function DayCell({
             ? "bg-fg font-semibold text-bg"
             : isToday
               ? "font-semibold text-danger"
-              : "text-fg-muted"
+              : dow === 0
+                ? "text-danger"
+                : dow === 6
+                  ? "text-saturday"
+                  : "text-fg-muted"
         }`}
       >
         {day}

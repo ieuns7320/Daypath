@@ -72,6 +72,7 @@
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
   --color-danger: var(--danger);
+  --color-saturday: var(--c-blue);
   --font-sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
     "Pretendard", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
 }
