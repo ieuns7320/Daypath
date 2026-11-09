@@ -54,6 +54,8 @@ export type Goal = {
   id: string;
   title: string;
   color: ColorKey;
+  /** 시작일 "YYYY-MM-DD" (선택, 타임라인 막대 왼쪽 끝. 없으면 만든 날) */
+  start_date: string | null;
   /** 목표일 "YYYY-MM-DD" (선택) */
   target_date: string | null;
   memo: string;

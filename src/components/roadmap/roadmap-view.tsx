@@ -18,6 +18,7 @@ import { ItemEditor, type EditorTarget } from "../editor/item-editor";
 import { CalendarIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, PlusIcon } from "../icons";
 import { TaskRow } from "../tasks/task-row";
 import { GoalDialog, MilestoneDialog } from "./roadmap-dialogs";
+import { RoadmapTimeline } from "./roadmap-timeline";
 
 /**
  * 로드맵 탭: 왼쪽 목표 목록 + 오른쪽 고른 목표의 마일스톤·할 일·관련 일정.
@@ -32,6 +33,7 @@ export function RoadmapView() {
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [goalDialog, setGoalDialog] = useState<Goal | "new" | null>(null);
   const [editor, setEditor] = useState<EditorTarget | null>(null);
+  const [view, setView] = useState<"list" | "timeline">("list");
 
   const infos = useMemo(
     () => sortGoals(goals).map((g) => goalInfo(g, milestones, tasks, events)),
@@ -50,7 +52,7 @@ export function RoadmapView() {
   return (
     <div className="relative flex h-full flex-col">
       <header className="flex items-center gap-2 border-b border-line px-4 py-2.5 md:px-6">
-        {mobileDetail && selected && (
+        {view === "list" && mobileDetail && selected && (
           <button
             onClick={() => setMobileDetail(false)}
             aria-label="목표 목록"
@@ -59,7 +61,35 @@ export function RoadmapView() {
             <ChevronLeftIcon />
           </button>
         )}
-        <h1 className="flex-1 text-base font-semibold tracking-tight md:text-lg">로드맵</h1>
+        <h1 className="text-base font-semibold tracking-tight md:text-lg">로드맵</h1>
+        <div className="flex-1">
+          {infos.length > 0 && (
+            <div
+              role="radiogroup"
+              aria-label="보기"
+              className="ml-2 inline-flex rounded-md border border-line p-0.5 text-xs md:ml-4"
+            >
+              {(
+                [
+                  ["list", "목록"],
+                  ["timeline", "타임라인"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  role="radio"
+                  aria-checked={view === key}
+                  onClick={() => setView(key)}
+                  className={`rounded px-2.5 py-1 ${
+                    view === key ? "bg-bg-hover font-medium text-fg" : "text-fg-muted hover:text-fg"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           onClick={() => setGoalDialog("new")}
           className="flex items-center gap-1 rounded-md border border-line px-2.5 py-1 text-sm text-fg-muted hover:border-line-strong hover:text-fg"
@@ -79,6 +109,17 @@ export function RoadmapView() {
           >
             첫 목표 만들기
           </button>
+        </div>
+      ) : view === "timeline" ? (
+        <div className="min-h-0 flex-1">
+          <RoadmapTimeline
+            infos={active}
+            onOpenGoal={setGoalDialog}
+            onSelectGoal={(id) => {
+              select(id);
+              setView("list");
+            }}
+          />
         </div>
       ) : (
         <div className="min-h-0 flex-1 md:flex">

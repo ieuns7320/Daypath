@@ -73,11 +73,25 @@ function TitleInput({
   );
 }
 
-/** 목표일 (선택): 날짜 입력 + 지우기, 없으면 "+ 목표일 정하기" */
-function DateField({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+const pad = (n: number) => String(n).padStart(2, "0");
+const dateInput = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+/** 날짜 (선택): 날짜 입력 + 지우기, 없으면 "+ 목표일 정하기" */
+function DateField({
+  value,
+  onChange,
+  label = "목표일",
+  initial,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  label?: string;
+  /** "+ 정하기"를 눌렀을 때 처음 값 (기본은 한 달 뒤) */
+  initial?: () => string;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="w-12 shrink-0 text-xs text-fg-faint">목표일</span>
+      <span className="w-12 shrink-0 text-xs text-fg-faint">{label}</span>
       {value ? (
         <>
           <input
@@ -89,7 +103,7 @@ function DateField({ value, onChange }: { value: string | null; onChange: (v: st
           <button
             type="button"
             onClick={() => onChange(null)}
-            aria-label="목표일 없애기"
+            aria-label={`${label} 없애기`}
             className="rounded p-1 text-fg-faint hover:text-fg"
           >
             <XIcon width={16} height={16} />
@@ -99,15 +113,15 @@ function DateField({ value, onChange }: { value: string | null; onChange: (v: st
         <button
           type="button"
           onClick={() => {
+            if (initial) return onChange(initial());
             // 기본은 한 달 뒤
             const d = new Date();
             d.setMonth(d.getMonth() + 1);
-            const pad = (n: number) => String(n).padStart(2, "0");
-            onChange(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+            onChange(dateInput(d));
           }}
           className="rounded-md border border-dashed border-line px-2.5 py-1.5 text-sm text-fg-muted hover:border-line-strong hover:text-fg"
         >
-          + 목표일 정하기
+          + {label} 정하기
         </button>
       )}
     </div>
@@ -164,17 +178,21 @@ export function GoalDialog({
   const { goals, saveGoal, deleteGoal } = useStore();
   const [title, setTitle] = useState(goal?.title ?? "");
   const [color, setColor] = useState<ColorKey>(goal?.color ?? "blue");
+  const [start, setStart] = useState<string | null>(goal?.start_date ?? null);
   const [target, setTarget] = useState<string | null>(goal?.target_date ?? null);
   const [memo, setMemo] = useState(goal?.memo ?? "");
 
   function submit(e: FormEvent) {
     e.preventDefault();
     const id = goal?.id ?? newId();
+    // 시작일이 목표일보다 늦으면 서로 바꾼다
+    const [s, t] = start && target && start > target ? [target, start] : [start, target];
     void saveGoal({
       id,
       title: title.trim() || "(제목 없음)",
       color,
-      target_date: target,
+      start_date: s,
+      target_date: t,
       memo,
       archived: goal?.archived ?? false,
       sort_order: goal?.sort_order ?? goals.length,
@@ -235,6 +253,7 @@ export function GoalDialog({
           ))}
         </div>
       </div>
+      <DateField value={start} onChange={setStart} label="시작일" initial={() => dateInput(new Date())} />
       <DateField value={target} onChange={setTarget} />
       <textarea
         value={memo}

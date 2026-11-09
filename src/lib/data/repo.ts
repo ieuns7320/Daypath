@@ -66,7 +66,7 @@ function readLocal(): Snapshot {
       // 예전 카테고리·태그에는 kind가 없다 → 캘린더용
       categories: (parsed.categories ?? []).map((c) => ({ ...c, kind: c.kind ?? "event" })),
       tags: (parsed.tags ?? []).map((t) => ({ ...t, kind: t.kind ?? "event" })),
-      goals: parsed.goals ?? [],
+      goals: (parsed.goals ?? []).map((g) => ({ ...g, start_date: g.start_date ?? null })),
       milestones: parsed.milestones ?? [],
     };
   } catch {
@@ -219,6 +219,7 @@ function toGoal(r: Record<string, unknown>): Goal {
     id: String(r.id),
     title: String(r.title ?? ""),
     color: isColorKey(r.color) ? r.color : "blue",
+    start_date: (r.start_date as string | null) ?? null,
     target_date: (r.target_date as string | null) ?? null,
     memo: String(r.memo ?? ""),
     archived: Boolean(r.archived),
@@ -256,6 +257,7 @@ function cloudRepo(): Repo {
   let hasKind = true;
   let hasReminders = true;
   let hasRoadmap = true;
+  let hasGoalStart = true;
   const prepare = <T extends TableName>(table: T, row: TableRow[T]): TableRow[T] => {
     if (table === "events") {
       let e: Partial<CalendarEvent> = row as CalendarEvent;
@@ -266,6 +268,11 @@ function cloudRepo(): Repo {
     }
     if (table === "tasks" && !hasRoadmap)
       return withoutMilestone(row as Task) as unknown as TableRow[T];
+    if (table === "goals" && !hasGoalStart) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { start_date, ...rest } = row as Goal;
+      return rest as unknown as TableRow[T];
+    }
     if ((table === "categories" || table === "tags") && !hasKind)
       return withoutKind(row as Category | Tag) as unknown as TableRow[T];
     return row;
@@ -273,7 +280,7 @@ function cloudRepo(): Repo {
   return {
     mode: "cloud",
     async load() {
-      const [ev, task, cat, tag, goal, ms, rec, kind, rem] = await Promise.all([
+      const [ev, task, cat, tag, goal, ms, rec, kind, rem, gstart] = await Promise.all([
         db.from("events").select("*"),
         db.from("tasks").select("*"),
         db.from("categories").select("*").order("sort_order"),
@@ -283,6 +290,7 @@ function cloudRepo(): Repo {
         db.from("events").select("rrule").limit(1),
         db.from("categories").select("kind").limit(1),
         db.from("events").select("reminders").limit(1),
+        db.from("goals").select("start_date").limit(1),
       ]);
       check(ev.error);
       check(cat.error);
@@ -314,11 +322,13 @@ function cloudRepo(): Repo {
       hasKind = !kind.error;
       hasReminders = !rem.error;
       hasRoadmap = !goal.error && !ms.error;
+      hasGoalStart = hasRoadmap && !gstart.error;
       const missing = [
         rec.error && "003_recurrence.sql(반복 일정)",
         kind.error && "004_split_categories.sql(캘린더·할 일 카테고리 분리)",
         rem.error && "005_notifications.sql(알림)",
         !hasRoadmap && "006_roadmap.sql(로드맵)",
+        !hasGoalStart && "007_goal_start.sql(목표 시작일)",
       ].filter(Boolean);
       if (missing.length) {
         throw new MissingTableError(
