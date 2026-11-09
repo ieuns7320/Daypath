@@ -4,7 +4,7 @@
 
 - 작성일: 2026-11-06
 - 최종 수정: 2026-11-09
-- 상태: **3단계 진행 중**: 3a 반복 일정 완료, 캘린더·할 일 분리 완료, 다음은 3b 배포·PWA ([10.7](#107-3단계-시작-전에-사용자와-정할-것))
+- 상태: **3단계 진행 중**: 3a 반복 일정 완료, 캘린더·할 일 분리 완료, 3b PWA 코드 완료·Vercel 배포 진행 중 ([10.7](#107-3단계-시작-전에-사용자와-정할-것))
 - 다른 PC에서 이어서 작업할 때: [10. 다른 PC에서 이어서 작업하기](#10-다른-pc에서-이어서-작업하기)
 - 작업 규칙: 작업이 끝날 때마다 새로 정한 내용을 이 문서에 반영한다. 결정 이력은 [11. 결정 기록](#11-결정-기록)에 쌓는다.
 
@@ -342,11 +342,11 @@
 |---|---|---|
 | **1단계** | 프로젝트 세팅, 로그인/동기화, 일정 CRUD (종일·여러 날 포함), 카테고리·태그 (색상), 일간/주간/월간 보기, 드래그 이동·리사이즈, 다크 모드 | ✅ 완료 |
 | **2단계** | 할 일 탭 (완료 체크, 마감일), 캘린더에 할 일 표시, 타임 블로킹, 카테고리/태그 필터 | ✅ 완료 |
-| **3단계** | 3a 반복 일정 / 3b Vercel 배포·PWA 설치(아이콘·manifest·서비스 워커) / 3c 알림 (Web Push) | 진행 중: 3a ✅ 완료, 캘린더·할 일 분리 + 할 일 탭 개편 ✅ (2026-11-09), 3b 다음 |
+| **3단계** | 3a 반복 일정 / 3b Vercel 배포·PWA 설치(아이콘·manifest·서비스 워커) / 3c 알림 (Web Push) | 진행 중: 3a ✅ 완료, 캘린더·할 일 분리 + 할 일 탭 개편 ✅ (2026-11-09), 3b PWA 코드 ✅ · Vercel 배포 진행 중 |
 | **4단계** | 로드맵 탭 (목표 → 마일스톤 → 일정/할 일 연결, 진행률, 트리/타임라인 보기) | |
 
 남은 일 (단계 무관):
-- Vercel 배포. 배포 후 Supabase의 Site URL을 배포 주소로 변경해야 한다.
+- Vercel 배포(3b). 배포 후 Supabase의 Site URL을 배포 주소로 변경해야 한다. 순서는 10.7.
 - (선택) 편집 창 시간 입력을 24시간 전용 선택기로 교체
 
 ---
@@ -385,7 +385,7 @@ DB는 클라우드(Supabase)에 있으므로 PC를 옮겨도 SQL을 다시 실�
 | 실행한 SQL | `supabase/schema.sql`(1단계) ✅, `supabase/migrations/002_tasks.sql` ✅, `003_recurrence.sql` ✅, `004_split_categories.sql` ✅ (2026-11-09) |
 | 로그인 | 이메일+비밀번호. 가입 시 확인 메일 필요(Supabase 기본값). 사용자 계정 1개 생성·확인 완료 |
 | Auth Site URL | 기본값(`http://localhost:3000`) 그대로. 배포 후 배포 주소로 바꿔야 한다 |
-| 배포 | 아직 없음 (Vercel 예정) |
+| 배포 | 아직 없음. 3b에서 Vercel 기본 주소(`*.vercel.app`)로 배포 예정 (사용자가 Vercel에서 GitHub 저장소를 가져온다) |
 | 실제 데이터 | 사용자가 시험용으로 넣은 카테고리 `test`, 태그 `test11`, 일정 `test` 정도. 개발 중에 사용자 데이터를 임의로 지우거나 바꾸지 않는다 |
 
 ### 10.3 개발 서버와 확인 방법
@@ -466,6 +466,25 @@ components/settings/    테마, 카테고리·태그 관리, 로그아웃
 - 알림 시점 기본값과 할 일 알림 규칙 (6장).
 - **PWA 설치**: 앱 아이콘(디자인 필요), manifest, 서비스 워커. Next 16 문서 `node_modules/next/dist/docs/01-app/02-guides/progressive-web-apps.md`와 `03-api-reference/03-file-conventions/01-metadata/manifest.md`를 먼저 읽는다.
 
+**3b 정한 것과 구현 (2026-11-09)**
+- 아이콘: **길 모티프**. 어두운 바탕(`#111113`)에 흰 선 하나가 빈 점(하루)에서 찬 점(목표)으로 이어진다. 안전 영역(가운데 80%) 안에 그려서 maskable로도 쓴다.
+  - 원본 `scripts/icon-source.svg` → `node scripts/make-icons.mjs`(sharp)로 `src/app/icon.svg`(둥근 모서리, 탭 아이콘), `src/app/apple-icon.png`(180, 모서리 없음), `public/icons/icon-192.png`·`icon-512.png`(둥근), `maskable-512.png`(꽉 찬 사각)를 만든다. 아이콘을 바꾸면 원본만 고치고 스크립트를 다시 돌린다.
+  - 기본 `favicon.ico`(Next 로고)는 지웠다.
+- manifest: `src/app/manifest.ts` → `/manifest.webmanifest`. 이름 Daypath, `start_url "/"`, `display standalone`, 배경·테마색 `#111113`.
+- 서비스 워커: `public/sw.js` **최소 버전**(install에서 skipWaiting, activate에서 clients.claim). **캐시·fetch 처리 없음**(오프라인은 범위 밖). 3c에서 push·notificationclick을 여기에 더한다. `next.config.ts` headers로 `/sw.js`는 `no-cache`. `.gitignore`에 있던 `public/sw.js`(자동 생성 도구용) 항목은 지웠다(직접 쓴 파일이라 커밋해야 배포된다).
+  - 등록: `src/components/sw-register.tsx`(루트 layout에 넣음, `updateViaCache: "none"`).
+- iOS: layout `metadata.appleWebApp`(capable, 상태 표시줄 default)으로 홈 화면에서 주소창 없이 열린다.
+- **설정 > 앱 설치** 칸 (`src/lib/pwa.ts`가 `beforeinstallprompt`를 앱 시작 때 붙잡아 둔다):
+  - 설치된 앱으로 열렸거나 방금 설치함 → "설치되어 있어요"
+  - Chrome·Edge처럼 바로 설치 가능 → [앱 설치] 버튼(브라우저 설치 창)
+  - iPhone·iPad(iPadOS는 터치 있는 Macintosh로 구분) → 공유 → 홈 화면에 추가 안내
+  - 그 밖 → 브라우저 메뉴에서 설치 안내
+- 배포 주소: Vercel 기본 `*.vercel.app`. 배포 순서:
+  1. (사용자) vercel.com에 GitHub로 로그인 → Add New → Project → `ieuns7320/Daypath` 가져오기
+  2. 환경 변수 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`(`.env.local`과 같은 값. secret 키는 넣지 않는다) 등록 후 Deploy
+  3. (사용자) Supabase > Authentication > URL Configuration: Site URL을 배포 주소로, Redirect URLs에 배포 주소와 `http://localhost:3000/**` 추가
+  4. 이후 `main`에 push하면 자동 배포
+
 ---
 
 ## 11. 결정 기록
@@ -532,3 +551,7 @@ components/settings/    테마, 카테고리·태그 관리, 로그아웃
 | 2026-11-09 | 할 일 탭 두 칸 사이 경계선을 끌어 너비 조절, 목록은 가운데 정렬 대신 경계선 쪽에 붙임 | 사용자 요청, 가운데 정렬이면 경계선을 옮겨도 간격이 그대로라서 |
 | 2026-11-09 | 캘린더·할 일 미니 캘린더에서 **일요일 숫자 빨간색** (FullCalendar `dayCellTopInnerClass`·`dayHeaderInnerClass`, 클래스 `daypath-sunday`) | 사용자 요청 |
 | 2026-11-09 | **토요일 숫자 파란색** (`--c-blue`, 클래스 `daypath-saturday`, Tailwind `text-saturday`) | 사용자 요청 |
+| 2026-11-09 | 3b 앱 아이콘은 **길 모티프**(빈 점 → 찬 점을 잇는 선, 어두운 바탕 단색) | 사용자 선택 |
+| 2026-11-09 | 서비스 워커는 3b에서 **최소 버전**(캐시 없음)으로 넣고 3c에서 푸시를 더함 | 사용자 선택, 설치 조건 확실히 + 알림 준비 |
+| 2026-11-09 | 설정에 **앱 설치** 칸 ([앱 설치] 버튼 / iOS 안내 / 설치됨) | 사용자 선택, iOS Safari는 설치 버튼이 없음 |
+| 2026-11-09 | 배포 주소는 Vercel 기본 `*.vercel.app` | 사용자 선택, 무료·설정 간단 |

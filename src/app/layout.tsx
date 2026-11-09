@@ -1,10 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import { ThemeProvider } from "next-themes";
+import { ServiceWorkerRegister } from "@/components/sw-register";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Daypath",
   description: "일정, 할 일, 로드맵을 하나로 관리하는 개인용 앱",
+  // iPhone·iPad 홈 화면에 추가했을 때 주소창 없이 앱처럼 열기
+  appleWebApp: { capable: true, title: "Daypath", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
@@ -30,6 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         >
           {children}
         </ThemeProvider>
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

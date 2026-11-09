@@ -9,9 +9,7 @@ out/
 build/
 dist/
 
-# PWA generated files
-public/sw.js
-public/sw.js.map
+# PWA generated files (public/sw.js는 직접 쓴 파일이라 커밋한다)
 public/workbox-*.js
 public/workbox-*.js.map
 

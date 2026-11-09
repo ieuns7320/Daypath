@@ -3,6 +3,7 @@
 import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { newId, useScoped, useStore } from "@/lib/data/store";
+import { getInstallState, promptInstall, subscribeInstall, type InstallState } from "@/lib/pwa";
 import { supabase } from "@/lib/data/supabase";
 import { COLOR_KEYS, COLOR_LABELS, colorVar, type ColorKey } from "@/lib/palette";
 import type { Kind } from "@/lib/types";
@@ -15,6 +16,7 @@ export function SettingsView() {
         <h1 className="text-lg font-semibold tracking-tight">설정</h1>
         <ThemeSection />
         <LabelsSection />
+        <InstallSection />
         <AccountSection />
       </div>
     </div>
@@ -321,6 +323,43 @@ function ColorPicker({ value, onChange }: { value: ColorKey; onChange: (c: Color
         />
       ))}
     </div>
+  );
+}
+
+/* ---------- 앱 설치 ---------- */
+
+function InstallSection() {
+  // 서버 렌더링 중에는 알 수 없으므로 null
+  const state = useSyncExternalStore<InstallState | null>(subscribeInstall, getInstallState, () => null);
+  if (!state) return null;
+  return (
+    <Section title="앱 설치">
+      {state === "installed" ? (
+        <p className="text-sm text-fg-muted">설치되어 있어요. 홈 화면·작업 표시줄에서 열 수 있어요.</p>
+      ) : state === "prompt" ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => void promptInstall()}
+            className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-bg-hover"
+          >
+            앱 설치
+          </button>
+          <p className="text-sm text-fg-muted">홈 화면·작업 표시줄에서 바로 열 수 있어요.</p>
+        </div>
+      ) : state === "ios" ? (
+        <p className="text-sm leading-6 text-fg-muted">
+          Safari 아래(아이패드는 위)의 <b className="font-medium text-fg">공유</b> 버튼 →{" "}
+          <b className="font-medium text-fg">홈 화면에 추가</b>를 누르면 앱처럼 쓸 수 있어요. 알림을
+          받으려면 이렇게 설치해야 해요.
+        </p>
+      ) : (
+        <p className="text-sm leading-6 text-fg-muted">
+          브라우저 메뉴에서 <b className="font-medium text-fg">앱 설치</b> 또는{" "}
+          <b className="font-medium text-fg">홈 화면에 추가</b>를 고르면 앱처럼 쓸 수 있어요. (주소창
+          오른쪽 설치 아이콘이 보이면 그것을 눌러도 돼요.)
+        </p>
+      )}
+    </Section>
   );
 }
 

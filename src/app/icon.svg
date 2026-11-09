@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Daypath 아이콘: 하루(빈 점)에서 목표(찬 점)로 이어지는 길. 안전 영역(가운데 80%) 안에 그린다 -->
+  <rect width="512" height="512" rx="112" fill="#111113"/>
+  <path d="M150 362 C 270 362, 242 150, 362 150"
+        fill="none" stroke="#ededef" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="150" cy="362" r="36" fill="#111113" stroke="#ededef" stroke-width="26"/>
+  <circle cx="362" cy="150" r="46" fill="#ededef"/>
+</svg>
