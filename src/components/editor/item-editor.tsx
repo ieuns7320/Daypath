@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { newId, useStore } from "@/lib/data/store";
+import { newId, useScoped, useStore } from "@/lib/data/store";
 import {
   addDays,
   addMinutes,
@@ -13,24 +13,34 @@ import {
   todayInput,
 } from "@/lib/date";
 import { colorVar } from "@/lib/palette";
+import {
+  DAY_NAMES,
+  describeRule,
+  formatRule,
+  occurrenceOn,
+  parseRule,
+  presetLabel,
+  presetOf,
+  presetRule,
+  type Freq,
+  type RecurrenceRule,
+  type RepeatPreset,
+} from "@/lib/recurrence";
+import { deleteOccurrence, updateOccurrence, type Scope } from "@/lib/series";
 import type { CalendarEvent, Task } from "@/lib/types";
 import { HashIcon, XIcon } from "../icons";
+import { ScopeDialog } from "./scope-dialog";
 
 /**
  * 편집 창을 여는 대상.
- * - new: 새로 만들기 (type으로 일정/할 일 중 처음 보여줄 탭을 정함)
+ * - new: 새 일정 (캘린더). 새 할 일은 할 일 탭 목록에서 바로 추가한다.
  * - event / task: 기존 항목 수정
  */
 export type EditorTarget =
-  | { kind: "new"; type: "event" | "task"; start: Date; end: Date; allDay: boolean }
-  | { kind: "event"; id: string }
+  | { kind: "new"; start: Date; end: Date; allDay: boolean }
+  /** occurrenceDate: 반복 일정의 어느 회차를 눌렀는지 "YYYY-MM-DD" */
+  | { kind: "event"; id: string; occurrenceDate?: string }
   | { kind: "task"; id: string };
-
-/** 새 할 일 초안: 마감일·작업 시간 없이 시작 */
-export function newTaskTarget(): EditorTarget {
-  const start = nextHour();
-  return { kind: "new", type: "task", start, end: addMinutes(start, 60), allDay: true };
-}
 
 const inputCls =
   "rounded-md border border-line bg-bg px-2 py-1.5 text-sm outline-none focus:border-fg-muted";
@@ -38,11 +48,17 @@ const inputCls =
 /** 일정·할 일 추가/수정 창. 데스크톱은 가운데 팝업, 모바일은 아래에서 올라오는 시트. */
 export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose: () => void }) {
   const store = useStore();
-  const { categories, tags } = store;
 
   const existingEvent = target.kind === "event" ? store.events.find((e) => e.id === target.id) : undefined;
   const existingTask = target.kind === "task" ? store.tasks.find((t) => t.id === target.id) : undefined;
   const isNew = target.kind === "new";
+  // 일정은 캘린더용, 할 일은 할 일용 카테고리·태그
+  const { categories, tags } = useScoped(target.kind === "task" ? "task" : "event");
+  // 반복 일정의 한 회차를 열었을 때
+  const occDate = target.kind === "event" && existingEvent?.rrule ? target.occurrenceDate : undefined;
+  const occurrence = existingEvent && occDate ? occurrenceOn(existingEvent, occDate) : null;
+  // "이 일정만" 고쳐서 떼어 낸 회차 (반복 설정은 원래 반복 일정에서만 바꾼다)
+  const isDetached = !!existingEvent?.series_id;
 
   /* ---------- 초기값 ---------- */
   const init = (() => {
@@ -54,9 +70,11 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
     let evEnd: Date;
     let evAllDay: boolean;
     if (existingEvent) {
-      evStart = new Date(existingEvent.start_at);
+      // 반복 회차면 그 회차의 시각을 보여 준다
+      evStart = occurrence?.start ?? new Date(existingEvent.start_at);
+      const rawEnd = occurrence?.end ?? new Date(existingEvent.end_at);
       evAllDay = existingEvent.all_day;
-      evEnd = evAllDay ? addDays(new Date(existingEvent.end_at), -1) : new Date(existingEvent.end_at);
+      evEnd = evAllDay ? addDays(rawEnd, -1) : rawEnd;
     } else if (draft) {
       evStart = draft.start;
       evAllDay = draft.allDay;
@@ -67,29 +85,22 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
       evAllDay = false;
     }
 
-    // 할 일: 마감일 / 작업 시간
-    let due: string | null = null;
-    let sched: { start: Date; end: Date } | null = null;
-    if (existingTask) {
-      due = existingTask.due_date;
-      if (existingTask.scheduled_start && existingTask.scheduled_end)
-        sched = {
-          start: new Date(existingTask.scheduled_start),
-          end: new Date(existingTask.scheduled_end),
-        };
-    } else if (draft && draft.type === "event") {
-      // 캘린더에서 고른 범위를 할 일로 바꾸면: 그 날을 마감일로, 시간 범위면 작업 시간으로
-      due = toDateInput(draft.start);
-      if (!draft.allDay) sched = { start: draft.start, end: draft.end };
-    }
-    const schedStart = sched?.start ?? nextHour();
-    const schedEnd = sched?.end ?? addMinutes(schedStart, 60);
+    // 할 일: 하는 날 (due_date 칸)
+    const day = existingTask?.due_date ?? null;
 
+    const rule = parseRule(existingEvent?.rrule);
     return {
-      type: (existingTask ? "task" : existingEvent ? "event" : draft!.type) as "event" | "task",
+      rule,
+      preset: presetOf(rule, evStart),
+      type: (existingTask ? "task" : "event") as "event" | "task",
       title: base?.title ?? "",
-      categoryId: base ? base.category_id : (categories[0]?.id ?? null),
-      tagIds: base?.tag_ids ?? [],
+      // 다른 쪽(캘린더 ↔ 할 일) 카테고리·태그가 남아 있으면 떼고 시작한다
+      categoryId: base
+        ? categories.some((c) => c.id === base.category_id)
+          ? base.category_id
+          : null
+        : (categories[0]?.id ?? null),
+      tagIds: (base?.tag_ids ?? []).filter((id) => tags.some((t) => t.id === id)),
       memo: base?.memo ?? "",
       evAllDay,
       evStartDate: toDateInput(evStart),
@@ -97,16 +108,12 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
       evEndDate: toDateInput(evEnd),
       evEndTime: toTimeInput(evEnd),
       done: existingTask?.done ?? false,
-      hasDue: due !== null,
-      dueDate: due ?? todayInput(),
-      hasSched: sched !== null,
-      schedDate: toDateInput(schedStart),
-      schedStart: toTimeInput(schedStart),
-      schedEnd: toTimeInput(schedEnd),
+      hasDay: day !== null,
+      day: day ?? todayInput(),
     };
   })();
 
-  const [type, setType] = useState(init.type);
+  const type = init.type;
   const [title, setTitle] = useState(init.title);
   const [categoryId, setCategoryId] = useState<string | null>(init.categoryId);
   const [tagIds, setTagIds] = useState<string[]>(init.tagIds);
@@ -119,12 +126,19 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
   const [endTime, setEndTime] = useState(init.evEndTime);
   // 할 일
   const [done, setDone] = useState(init.done);
-  const [hasDue, setHasDue] = useState(init.hasDue);
-  const [dueDate, setDueDate] = useState(init.dueDate);
-  const [hasSched, setHasSched] = useState(init.hasSched);
-  const [schedDate, setSchedDate] = useState(init.schedDate);
-  const [schedStart, setSchedStart] = useState(init.schedStart);
-  const [schedEnd, setSchedEnd] = useState(init.schedEnd);
+  const [hasDay, setHasDay] = useState(init.hasDay);
+  const [day, setDay] = useState(init.day);
+  // 반복
+  const [preset, setPreset] = useState<RepeatPreset>(init.preset);
+  const [custom, setCustom] = useState<RecurrenceRule>(
+    init.rule ?? { freq: "WEEKLY", interval: 1, byday: [], until: null, count: null },
+  );
+  // 반복 설정을 직접 건드렸는지 (안 건드렸으면 기존 규칙을 그대로 쓰고, 날짜를 옮긴 만큼만 따라 옮긴다)
+  const [ruleTouched, setRuleTouched] = useState(false);
+  // 반복 일정 저장·삭제 전에 범위를 묻는 중
+  const [pending, setPending] = useState<
+    { action: "save"; next: CalendarEvent; allowThis: boolean } | { action: "delete" } | null
+  >(null);
 
   const titleRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -147,22 +161,11 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
     setEndTime(toTimeInput(newEnd));
   }
 
-  // 작업 시간 시작을 바꾸면 길이 유지
-  function changeSchedStart(time: string) {
-    const duration = Math.max(
-      fromInputs(schedDate, schedEnd).getTime() - fromInputs(schedDate, schedStart).getTime(),
-      15 * 60_000,
-    );
-    setSchedStart(time);
-    setSchedEnd(toTimeInput(new Date(fromInputs(schedDate, time).getTime() + duration)));
-  }
-
   /* ---------- 저장 / 삭제 ---------- */
   async function submit(e: FormEvent) {
     e.preventDefault();
     const name = title.trim() || "(제목 없음)";
     const now = new Date().toISOString();
-    onClose();
 
     if (type === "event") {
       let start: Date;
@@ -184,42 +187,96 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
         category_id: categoryId,
         tag_ids: tagIds,
         memo,
+        rrule: isDetached
+          ? null
+          : existingEvent && !ruleTouched
+            ? existingEvent.rrule
+            : buildRule(start),
+        exdates: existingEvent?.exdates ?? [],
+        series_id: existingEvent?.series_id ?? null,
+        original_date: existingEvent?.original_date ?? null,
       };
+      if (existingEvent && occDate) {
+        // 반복 회차: 범위를 물은 뒤 저장 (규칙을 바꿨으면 "이 일정만"은 없음)
+        setPending({ action: "save", next: event, allowThis: !ruleTouched });
+        return;
+      }
+      onClose();
       await store.saveEvent(event);
     } else {
-      let sStart: string | null = null;
-      let sEnd: string | null = null;
-      if (hasSched) {
-        const s = fromInputs(schedDate, schedStart);
-        let en = fromInputs(schedDate, schedEnd);
-        if (en <= s) en = addMinutes(s, 60);
-        sStart = s.toISOString();
-        sEnd = en.toISOString();
-      }
+      // 할 일 편집은 기존 항목만 (새 할 일은 할 일 탭에서 바로 추가)
+      if (!existingTask) return onClose();
       const task: Task = {
-        id: existingTask?.id ?? newId(),
+        ...existingTask,
         title: name,
-        due_date: hasDue ? dueDate : null,
-        scheduled_start: sStart,
-        scheduled_end: sEnd,
+        due_date: hasDay ? day : null,
         done,
-        done_at: done ? (existingTask?.done_at ?? now) : null,
+        done_at: done ? (existingTask.done_at ?? now) : null,
         category_id: categoryId,
         tag_ids: tagIds,
         memo,
-        created_at: existingTask?.created_at ?? now,
       };
+      onClose();
       await store.saveTask(task);
     }
   }
 
   async function remove() {
+    if (existingEvent && occDate) {
+      setPending({ action: "delete" });
+      return;
+    }
     onClose();
     if (existingEvent) await store.deleteEvent(existingEvent.id);
     if (existingTask) await store.deleteTask(existingTask.id);
   }
 
-  const heading = isNew ? null : type === "event" ? "일정 수정" : "할 일 수정";
+  /** 범위를 고른 뒤 반복 일정에 적용 */
+  async function applyScope(scope: Scope) {
+    if (!existingEvent || !occDate || !pending) return;
+    const changes =
+      pending.action === "save"
+        ? updateOccurrence(store.events, existingEvent, occDate, scope, pending.next, newId)
+        : deleteOccurrence(store.events, existingEvent, occDate, scope);
+    setPending(null);
+    onClose();
+    await store.applyEventChanges(changes);
+  }
+
+  /** 편집 창의 반복 설정 → 규칙 문자열 */
+  function buildRule(start: Date): string | null {
+    if (preset === "none") return null;
+    if (preset !== "custom") return formatRule(presetRule(preset, start)!);
+    return formatRule({
+      ...custom,
+      byday: custom.freq === "WEEKLY" ? (custom.byday.length ? custom.byday : [start.getDay()]) : [],
+    });
+  }
+
+  function changePreset(next: RepeatPreset) {
+    setRuleTouched(true);
+    if (next === "custom" && preset !== "custom") {
+      // 빠른 선택에서 사용자 지정으로: 지금 선택을 출발점으로
+      const start = fromInputs(startDate, startTime);
+      setCustom(
+        presetRule(preset, start) ?? {
+          freq: "WEEKLY",
+          interval: 1,
+          byday: [start.getDay()],
+          until: null,
+          count: null,
+        },
+      );
+    }
+    setPreset(next);
+  }
+
+  function changeCustom(patch: Partial<RecurrenceRule>) {
+    setRuleTouched(true);
+    setCustom((c) => ({ ...c, ...patch }));
+  }
+
+  const heading = isNew ? "새 일정" : type === "event" ? "일정 수정" : "할 일 수정";
 
   return createPortal(
     <div
@@ -231,26 +288,7 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
         className="max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl border border-line bg-bg pb-[env(safe-area-inset-bottom)] shadow-xl md:max-w-md md:rounded-xl md:pb-0"
       >
         <div className="flex items-center justify-between px-5 pt-4">
-          {heading ? (
-            <span className="text-sm font-medium text-fg-muted">{heading}</span>
-          ) : (
-            <div className="flex rounded-lg bg-bg-hover p-0.5" role="tablist" aria-label="종류">
-              {(["event", "task"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  role="tab"
-                  aria-selected={type === t}
-                  onClick={() => setType(t)}
-                  className={`rounded-md px-3 py-1 text-sm ${
-                    type === t ? "bg-bg font-medium text-fg shadow-sm" : "text-fg-muted"
-                  }`}
-                >
-                  {t === "event" ? "일정" : "할 일"}
-                </button>
-              ))}
-            </div>
-          )}
+          <span className="text-sm font-medium text-fg-muted">{heading}</span>
           <button type="button" onClick={onClose} aria-label="닫기" className="text-fg-muted hover:text-fg">
             <XIcon />
           </button>
@@ -325,56 +363,37 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
                 />
                 종일
               </label>
+              {isDetached ? (
+                <p className="pl-14 text-xs text-fg-faint">
+                  반복 일정에서 이 회차만 따로 고친 일정이에요.
+                </p>
+              ) : (
+                <RepeatField
+                  start={fromInputs(startDate, startTime)}
+                  preset={preset}
+                  custom={custom}
+                  onPreset={changePreset}
+                  onCustom={changeCustom}
+                />
+              )}
             </div>
           ) : (
-            /* ---------- 할 일: 마감일 · 작업 시간 (둘 다 선택) ---------- */
-            <div className="space-y-2">
-              <Row label="마감일">
-                {hasDue ? (
-                  <>
-                    <input
-                      type="date"
-                      value={dueDate}
-                      onChange={(e) => e.target.value && setDueDate(e.target.value)}
-                      className={inputCls}
-                    />
-                    <ClearButton label="마감일 없애기" onClick={() => setHasDue(false)} />
-                  </>
-                ) : (
-                  <AddButton onClick={() => setHasDue(true)}>마감일 추가</AddButton>
-                )}
-              </Row>
-              <Row label="작업 시간">
-                {hasSched ? (
-                  <>
-                    <input
-                      type="date"
-                      value={schedDate}
-                      onChange={(e) => e.target.value && setSchedDate(e.target.value)}
-                      className={inputCls}
-                    />
-                    <input
-                      type="time"
-                      step={300}
-                      value={schedStart}
-                      onChange={(e) => e.target.value && changeSchedStart(e.target.value)}
-                      className={inputCls}
-                    />
-                    <span className="text-fg-faint">–</span>
-                    <input
-                      type="time"
-                      step={300}
-                      value={schedEnd}
-                      onChange={(e) => e.target.value && setSchedEnd(e.target.value)}
-                      className={inputCls}
-                    />
-                    <ClearButton label="작업 시간 없애기" onClick={() => setHasSched(false)} />
-                  </>
-                ) : (
-                  <AddButton onClick={() => setHasSched(true)}>캘린더에 시간 배정</AddButton>
-                )}
-              </Row>
-            </div>
+            /* ---------- 할 일: 하는 날 (없을 수도 있음) ---------- */
+            <Row label="날짜">
+              {hasDay ? (
+                <>
+                  <input
+                    type="date"
+                    value={day}
+                    onChange={(e) => e.target.value && setDay(e.target.value)}
+                    className={inputCls}
+                  />
+                  <ClearButton label="날짜 없애기" onClick={() => setHasDay(false)} />
+                </>
+              ) : (
+                <AddButton onClick={() => setHasDay(true)}>날짜 정하기</AddButton>
+              )}
+            </Row>
           )}
 
           {/* 카테고리 (1개) */}
@@ -443,8 +462,163 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
           </button>
         </div>
       </form>
+      {pending && (
+        <ScopeDialog
+          action={pending.action}
+          allowThis={pending.action === "delete" || pending.allowThis}
+          onChoose={(scope) => void applyScope(scope)}
+          onCancel={() => setPending(null)}
+        />
+      )}
     </div>,
     document.body,
+  );
+}
+
+const FREQ_UNITS: { freq: Freq; unit: string }[] = [
+  { freq: "DAILY", unit: "일" },
+  { freq: "WEEKLY", unit: "주" },
+  { freq: "MONTHLY", unit: "개월" },
+  { freq: "YEARLY", unit: "년" },
+];
+
+const PRESETS: RepeatPreset[] = ["none", "daily", "weekly", "monthly", "yearly", "custom"];
+
+/** 반복: 빠른 선택 + 사용자 지정(간격·요일·종료) */
+function RepeatField({
+  start,
+  preset,
+  custom,
+  onPreset,
+  onCustom,
+}: {
+  start: Date;
+  preset: RepeatPreset;
+  custom: RecurrenceRule;
+  onPreset: (p: RepeatPreset) => void;
+  onCustom: (patch: Partial<RecurrenceRule>) => void;
+}) {
+  const endType = custom.until ? "until" : custom.count ? "count" : "none";
+  const days = custom.byday.length ? custom.byday : [start.getDay()];
+  const clamp = (v: string, max: number) => Math.min(max, Math.max(1, Number(v) || 1));
+
+  return (
+    <div className="space-y-2">
+      <Row label="반복">
+        <select
+          value={preset}
+          onChange={(e) => onPreset(e.target.value as RepeatPreset)}
+          className={inputCls}
+          aria-label="반복"
+        >
+          {PRESETS.map((p) => (
+            <option key={p} value={p}>
+              {presetLabel(p, start)}
+            </option>
+          ))}
+        </select>
+      </Row>
+
+      {preset === "custom" && (
+        <div className="ml-14 space-y-2.5 rounded-lg border border-line p-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={99}
+              value={custom.interval}
+              onChange={(e) => onCustom({ interval: clamp(e.target.value, 99) })}
+              className={`${inputCls} w-16`}
+              aria-label="간격"
+            />
+            <select
+              value={custom.freq}
+              onChange={(e) => onCustom({ freq: e.target.value as Freq })}
+              className={inputCls}
+              aria-label="반복 단위"
+            >
+              {FREQ_UNITS.map((f) => (
+                <option key={f.freq} value={f.freq}>
+                  {f.unit}마다
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {custom.freq === "WEEKLY" && (
+            <div className="flex gap-1" role="group" aria-label="요일">
+              {DAY_NAMES.map((name, d) => {
+                const on = days.includes(d);
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => {
+                      const next = on ? days.filter((x) => x !== d) : [...days, d];
+                      // 요일은 하나 이상 남긴다
+                      if (next.length) onCustom({ byday: next.sort() });
+                    }}
+                    className={`size-8 rounded-full border text-xs ${
+                      on
+                        ? "border-accent bg-accent text-accent-fg"
+                        : "border-line text-fg-muted hover:border-line-strong"
+                    }`}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-fg-faint">종료</span>
+            <select
+              value={endType}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "none") onCustom({ until: null, count: null });
+                if (v === "until") onCustom({ until: toDateInput(addDays(start, 30)), count: null });
+                if (v === "count") onCustom({ until: null, count: 10 });
+              }}
+              className={inputCls}
+              aria-label="종료"
+            >
+              <option value="none">없음</option>
+              <option value="until">날짜까지</option>
+              <option value="count">횟수</option>
+            </select>
+            {endType === "until" && (
+              <input
+                type="date"
+                value={custom.until ?? ""}
+                min={toDateInput(start)}
+                onChange={(e) => e.target.value && onCustom({ until: e.target.value })}
+                className={inputCls}
+                aria-label="종료 날짜"
+              />
+            )}
+            {endType === "count" && (
+              <span className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min={1}
+                  max={999}
+                  value={custom.count ?? 1}
+                  onChange={(e) => onCustom({ count: clamp(e.target.value, 999) })}
+                  className={`${inputCls} w-16`}
+                  aria-label="반복 횟수"
+                />
+                <span className="text-fg-muted">회</span>
+              </span>
+            )}
+          </div>
+
+          <p className="text-xs text-fg-faint">{describeRule({ ...custom, byday: days }, start)}</p>
+        </div>
+      )}
+    </div>
   );
 }
 

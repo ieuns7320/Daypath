@@ -26,6 +26,15 @@ export const CalendarIcon = (p: IconProps) => (
   </Base>
 );
 
+export const RepeatIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M17 2.5 20.5 6 17 9.5" />
+    <path d="M3.5 11.5V10a4 4 0 0 1 4-4h13" />
+    <path d="M7 21.5 3.5 18 7 14.5" />
+    <path d="M20.5 12.5V14a4 4 0 0 1-4 4h-13" />
+  </Base>
+);
+
 export const CheckSquareIcon = (p: IconProps) => (
   <Base {...p}>
     <rect x="3.5" y="3.5" width="17" height="17" rx="3" />
@@ -105,7 +114,15 @@ export const ChevronDownIcon = (p: IconProps) => (
   </Base>
 );
 
-export const HashIcon = (p: IconProps) => (
+export const MoreIcon = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="5.5" cy="12" r="1" fill="currentColor" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" />
+    <circle cx="18.5" cy="12" r="1" fill="currentColor" />
+  </Base>
+);
+
+export const HashIcon =(p: IconProps) => (
   <Base {...p}>
     <path d="M5 9h15M4 15h15M10 3 8 21M16 3l-2 18" />
   </Base>

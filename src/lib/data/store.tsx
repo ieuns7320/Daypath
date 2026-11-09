@@ -9,13 +9,30 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { CalendarEvent, Category, Snapshot, Tag, Task } from "../types";
+import type { CalendarEvent, Category, Kind, Snapshot, Tag, Task } from "../types";
+import type { EventChanges } from "../series";
 import { MissingTableError, repo } from "./repo";
 
 /** 카테고리/태그 필터. 같은 묶음 안은 "하나라도 맞으면", 두 묶음 사이는 "둘 다 맞아야" 통과. */
 export type Filter = { categoryIds: string[]; tagIds: string[] };
 
 type Filterable = { category_id: string | null; tag_ids: string[] };
+
+/**
+ * 캘린더용 / 할 일용 카테고리·태그와 그 필터.
+ * 캘린더 화면은 useScoped("event"), 할 일 화면은 useScoped("task")만 쓴다.
+ */
+export type Scoped = {
+  kind: Kind;
+  categories: Category[];
+  tags: Tag[];
+  filter: Filter;
+  filterActive: boolean;
+  toggleCategoryFilter(id: string): void;
+  toggleTagFilter(id: string): void;
+  clearFilter(): void;
+  matchesFilter(item: Filterable): boolean;
+};
 
 type Store = Snapshot & {
   mode: "local" | "cloud";
@@ -25,6 +42,8 @@ type Store = Snapshot & {
 
   saveEvent(event: CalendarEvent): Promise<void>;
   deleteEvent(id: string): Promise<void>;
+  /** 여러 일정을 한 번에 저장·삭제 (반복 일정의 회차 수정·삭제) */
+  applyEventChanges(changes: EventChanges): Promise<void>;
   saveTask(task: Task): Promise<void>;
   deleteTask(id: string): Promise<void>;
   toggleTask(id: string): Promise<void>;
@@ -33,12 +52,8 @@ type Store = Snapshot & {
   saveTag(tag: Tag): Promise<void>;
   deleteTag(id: string): Promise<void>;
 
-  filter: Filter;
-  filterActive: boolean;
-  toggleCategoryFilter(id: string): void;
-  toggleTagFilter(id: string): void;
-  clearFilter(): void;
-  matchesFilter(item: Filterable): boolean;
+  /** 캘린더용(event) / 할 일용(task) 카테고리·태그와 필터 (필터도 따로) */
+  scoped: Record<Kind, Scoped>;
 };
 
 const StoreContext = createContext<Store | null>(null);
@@ -62,7 +77,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [snap, setSnap] = useState<Snapshot>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>(NO_FILTER);
+  const [filters, setFilters] = useState<Record<Kind, Filter>>({ event: NO_FILTER, task: NO_FILTER });
 
   const reload = useCallback(async () => {
     try {
@@ -96,25 +111,48 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [reload],
   );
 
-  // 지워진 카테고리/태그가 필터에 남아 있으면 정리
-  const liveFilter = useMemo<Filter>(() => {
-    const cats = new Set(snap.categories.map((c) => c.id));
-    const tags = new Set(snap.tags.map((t) => t.id));
-    return {
-      categoryIds: filter.categoryIds.filter((id) => cats.has(id)),
-      tagIds: filter.tagIds.filter((id) => tags.has(id)),
+  /** 한쪽(캘린더 / 할 일)의 카테고리·태그와 필터 */
+  const scoped = useMemo<Record<Kind, Scoped>>(() => {
+    const make = (kind: Kind): Scoped => {
+      const categories = snap.categories
+        .filter((c) => c.kind === kind)
+        .sort((a, b) => a.sort_order - b.sort_order);
+      const tags = snap.tags.filter((t) => t.kind === kind);
+      // 지워진 카테고리/태그가 필터에 남아 있으면 빼고 본다
+      const cats = new Set(categories.map((c) => c.id));
+      const tagSet = new Set(tags.map((t) => t.id));
+      const filter: Filter = {
+        categoryIds: filters[kind].categoryIds.filter((id) => cats.has(id)),
+        tagIds: filters[kind].tagIds.filter((id) => tagSet.has(id)),
+      };
+      const update = (fn: (f: Filter) => Filter) =>
+        setFilters((all) => ({ ...all, [kind]: fn(all[kind]) }));
+      return {
+        kind,
+        categories,
+        tags,
+        filter,
+        filterActive: filter.categoryIds.length > 0 || filter.tagIds.length > 0,
+        toggleCategoryFilter: (id) =>
+          update((f) => ({ ...f, categoryIds: toggleIn(f.categoryIds, id) })),
+        toggleTagFilter: (id) => update((f) => ({ ...f, tagIds: toggleIn(f.tagIds, id) })),
+        clearFilter: () => update(() => NO_FILTER),
+        matchesFilter: (item) => {
+          if (
+            filter.categoryIds.length &&
+            !(item.category_id && filter.categoryIds.includes(item.category_id))
+          )
+            return false;
+          if (filter.tagIds.length && !item.tag_ids.some((t) => filter.tagIds.includes(t)))
+            return false;
+          return true;
+        },
+      };
     };
-  }, [filter, snap.categories, snap.tags]);
+    return { event: make("event"), task: make("task") };
+  }, [snap.categories, snap.tags, filters]);
 
   const store = useMemo<Store>(() => {
-    const matchesFilter = (item: Filterable) => {
-      const { categoryIds, tagIds } = liveFilter;
-      if (categoryIds.length && !(item.category_id && categoryIds.includes(item.category_id)))
-        return false;
-      if (tagIds.length && !item.tag_ids.some((t) => tagIds.includes(t))) return false;
-      return true;
-    };
-
     return {
       ...snap,
       mode: repo.mode,
@@ -130,8 +168,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
         ),
       deleteEvent: (id) =>
         run(
-          (s) => ({ ...s, events: s.events.filter((e) => e.id !== id) }),
+          // 반복 일정이면 떼어 낸 회차도 함께 지운다 (DB는 on delete cascade)
+          (s) => ({ ...s, events: s.events.filter((e) => e.id !== id && e.series_id !== id) }),
           () => repo.remove("events", id),
+        ),
+      applyEventChanges: ({ upserts, removes }) =>
+        run(
+          (s) => {
+            let events = s.events.filter((e) => !removes.includes(e.id));
+            for (const e of upserts) events = upsertById(events, e);
+            return { ...s, events };
+          },
+          async () => {
+            await repo.upsertMany("events", upserts);
+            for (const id of removes) await repo.remove("events", id);
+          },
         ),
 
       /* 할 일 */
@@ -211,16 +262,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         );
       },
 
-      /* 필터 */
-      filter: liveFilter,
-      filterActive: liveFilter.categoryIds.length > 0 || liveFilter.tagIds.length > 0,
-      toggleCategoryFilter: (id) =>
-        setFilter((f) => ({ ...f, categoryIds: toggleIn(f.categoryIds, id) })),
-      toggleTagFilter: (id) => setFilter((f) => ({ ...f, tagIds: toggleIn(f.tagIds, id) })),
-      clearFilter: () => setFilter(NO_FILTER),
-      matchesFilter,
+      scoped,
     };
-  }, [snap, loading, error, run, liveFilter]);
+  }, [snap, loading, error, run, scoped]);
 
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }
@@ -229,6 +273,11 @@ export function useStore(): Store {
   const store = useContext(StoreContext);
   if (!store) throw new Error("useStore must be used inside <DataProvider>");
   return store;
+}
+
+/** 캘린더용("event") 또는 할 일용("task") 카테고리·태그·필터 */
+export function useScoped(kind: Kind): Scoped {
+  return useStore().scoped[kind];
 }
 
 export function newId(): string {

@@ -54,6 +54,8 @@ html:root {
 
 /* 일정: 칠하지 않고 카테고리 색 실선 테두리 (배경은 바탕색으로 눈금선만 가림) */
 .daypath-event-box {
+  /* FullCalendar 막대 안(flex 줄)에서 막대 길이만큼 늘어나야 여러 날 일정이 길게 보인다 */
+  flex: 1 1 auto;
   border: 1.5px solid var(--event-color);
   border-radius: 4px;
   background: var(--bg);
@@ -61,42 +63,25 @@ html:root {
   padding: 1px 4px;
 }
 
-/* ---------- 할 일 ---------- */
-/* 할 일은 칠하지 않고 체크박스 + 제목. 작업 시간이 배정되면 카테고리 색 점선 테두리. */
-.daypath-task {
-  align-items: center;
-  color: var(--fg);
+/* 월간: 그날 일정이 적을수록 막대를 두껍게 (4개 이상은 기본 두께) */
+.daypath-event-box.is-density-1 {
+  padding-block: 6px;
+  font-size: 13px;
 }
 
-.daypath-task-line {
-  display: flex;
-  flex: 1 1 100%;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
+.daypath-event-box.is-density-2 {
+  padding-block: 4px;
 }
 
-.daypath-task.is-scheduled {
-  align-content: flex-start;
-  border: 1.5px dashed var(--task-color);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--task-color) 10%, var(--bg));
-  padding: 2px 4px;
+.daypath-event-box.is-density-3 {
+  padding-block: 2px;
 }
 
-.daypath-task.is-done {
-  opacity: 0.5;
-}
-
-.daypath-task.is-done .daypath-event-title {
-  text-decoration: line-through;
-}
-
-/* 월간 요약 "할 일 3" */
-.daypath-tasksum {
-  align-items: center;
-  color: var(--fg-muted);
-  cursor: pointer;
+/* 반복 일정 ↻ 표시 */
+.daypath-event-repeat {
+  flex-shrink: 0;
+  align-self: center;
+  opacity: 0.6;
 }
 
 .daypath-event-time {
@@ -118,22 +103,31 @@ html:root {
   display: flex;
   flex: 1 1 100%;
   flex-wrap: wrap;
-  gap: 2px 3px;
+  gap: 2px 8px;
   min-width: 0;
-  margin-top: 1px;
+  margin-top: 4px;
 }
 
-/* "#이름" 칩: 칠하지 않고 태그 색 테두리로만 구분 */
+/* "● 이름": 상자 없이 점만 태그 색, 이름은 흐린 글자 (일정 안의 작은 일정처럼 보이지 않게) */
 .daypath-event-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   max-width: 100%;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  border: 1px solid var(--tag-color);
-  border-radius: 4px;
-  padding: 0 4px;
-  color: var(--fg);
-  font-size: 10px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
   font-weight: 500;
-  line-height: 13px;
+  line-height: 15px;
+}
+
+.daypath-event-tag::before {
+  content: "";
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--tag-color);
 }

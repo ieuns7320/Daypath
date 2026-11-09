@@ -2,9 +2,10 @@
 
 import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { useTheme } from "next-themes";
-import { newId, useStore } from "@/lib/data/store";
+import { newId, useScoped, useStore } from "@/lib/data/store";
 import { supabase } from "@/lib/data/supabase";
 import { COLOR_KEYS, COLOR_LABELS, colorVar, type ColorKey } from "@/lib/palette";
+import type { Kind } from "@/lib/types";
 import { HashIcon, XIcon } from "../icons";
 
 export function SettingsView() {
@@ -13,8 +14,7 @@ export function SettingsView() {
       <div className="mx-auto max-w-xl space-y-10 px-4 py-8 md:px-6">
         <h1 className="text-lg font-semibold tracking-tight">설정</h1>
         <ThemeSection />
-        <CategorySection />
-        <TagSection />
+        <LabelsSection />
         <AccountSection />
       </div>
     </div>
@@ -62,16 +62,53 @@ function ThemeSection() {
   );
 }
 
-/* ---------- 카테고리 ---------- */
+/* ---------- 카테고리·태그: [캘린더 | 할 일] 전환 ---------- */
 
-function CategorySection() {
-  const { categories, saveCategory, deleteCategory } = useStore();
-  const sorted = [...categories].sort((a, b) => a.sort_order - b.sort_order);
+const KIND_LABEL: Record<Kind, string> = { event: "캘린더", task: "할 일" };
+
+/** 캘린더용과 할 일용 카테고리·태그는 따로 관리한다. 위 전환으로 고른 쪽만 보여 준다. */
+function LabelsSection() {
+  const [kind, setKind] = useState<Kind>("event");
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="mb-3 text-sm font-medium text-fg-muted">카테고리·태그</h2>
+        <div className="inline-flex rounded-lg bg-bg-hover p-0.5" role="tablist" aria-label="어디에 쓰는지">
+          {(["event", "task"] as const).map((k) => (
+            <button
+              key={k}
+              role="tab"
+              aria-selected={kind === k}
+              onClick={() => setKind(k)}
+              className={`rounded-md px-4 py-1.5 text-sm ${
+                kind === k ? "bg-bg font-medium shadow-sm" : "text-fg-muted"
+              }`}
+            >
+              {KIND_LABEL[k]}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-fg-faint">
+          캘린더와 할 일은 카테고리·태그를 따로 써요. 여기서 고른 쪽만 보여요.
+        </p>
+      </div>
+      <CategorySection kind={kind} />
+      <TagSection kind={kind} />
+    </div>
+  );
+}
+
+function CategorySection({ kind }: { kind: Kind }) {
+  const { saveCategory, deleteCategory } = useStore();
+  const { categories: sorted } = useScoped(kind);
+  const item = kind === "event" ? "일정" : "할 일";
 
   return (
-    <Section title="카테고리">
+    <Section title={`${KIND_LABEL[kind]} 카테고리`}>
       <p className="-mt-2 mb-3 text-xs text-fg-faint">
-        일정·할 일마다 하나만 고를 수 있고, 캘린더 블록 테두리 색이 돼요.
+        {kind === "event"
+          ? "일정마다 하나만 고를 수 있고, 캘린더 블록 테두리 색이 돼요."
+          : "할 일마다 하나만 고를 수 있고, 할 일 탭에서 이 순서대로 묶여요."}
       </p>
       <ul className="divide-y divide-line rounded-lg border border-line">
         {sorted.map((c) => (
@@ -82,7 +119,7 @@ function CategorySection() {
             marker={<span className="size-3 rounded-[3px]" style={{ background: colorVar(c.color) }} />}
             onRename={(name) => saveCategory({ ...c, name })}
             onRecolor={(color) => saveCategory({ ...c, color })}
-            deleteNote="이 카테고리의 일정·할 일은 '카테고리 없음'이 돼요."
+            deleteNote={`이 카테고리의 ${item}은 '카테고리 없음'이 돼요.`}
             onDelete={() => void deleteCategory(c.id)}
           />
         ))}
@@ -94,6 +131,7 @@ function CategorySection() {
               name,
               color,
               sort_order: (sorted.at(-1)?.sort_order ?? 0) + 1,
+              kind,
             })
           }
         />
@@ -104,12 +142,14 @@ function CategorySection() {
 
 /* ---------- 태그 ---------- */
 
-function TagSection() {
-  const { tags, saveTag, deleteTag } = useStore();
+function TagSection({ kind }: { kind: Kind }) {
+  const { saveTag, deleteTag } = useStore();
+  const { tags } = useScoped(kind);
+  const item = kind === "event" ? "일정" : "할 일";
   return (
-    <Section title="태그">
+    <Section title={`${KIND_LABEL[kind]} 태그`}>
       <p className="-mt-2 mb-3 text-xs text-fg-faint">
-        일정·할 일에 여러 개 붙일 수 있고, 블록 제목 아래 #이름으로 표시돼요.
+        {item}에 여러 개 붙일 수 있고, 제목 아래 ● 이름으로 표시돼요.
       </p>
       <ul className="divide-y divide-line rounded-lg border border-line">
         {tags.map((t) => (
@@ -120,13 +160,13 @@ function TagSection() {
             marker={<HashIcon width={14} height={14} style={{ color: colorVar(t.color) }} />}
             onRename={(name) => saveTag({ ...t, name })}
             onRecolor={(color) => saveTag({ ...t, color })}
-            deleteNote="일정·할 일에 붙어 있던 이 태그도 함께 떼어져요."
+            deleteNote={`${item}에 붙어 있던 이 태그도 함께 떼어져요.`}
             onDelete={() => void deleteTag(t.id)}
           />
         ))}
         <AddRow
           placeholder="새 태그"
-          onAdd={(name, color) => saveTag({ id: newId(), name, color })}
+          onAdd={(name, color) => saveTag({ id: newId(), name, color, kind })}
         />
       </ul>
     </Section>

@@ -2,16 +2,17 @@
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { useStore } from "@/lib/data/store";
+import { useScoped } from "@/lib/data/store";
+import type { Kind } from "@/lib/types";
 import { colorVar } from "@/lib/palette";
 import { FilterIcon, HashIcon, XIcon } from "../icons";
 
 /**
  * 모바일용 필터 버튼 (데스크톱은 사이드바에서 필터).
- * 누르면 아래에서 카테고리·태그 선택 시트가 올라온다.
+ * 누르면 아래에서 카테고리·태그 선택 시트가 올라온다. kind: 캘린더용 / 할 일용.
  */
-export function FilterButton() {
-  const { filterActive, filter } = useStore();
+export function FilterButton({ kind }: { kind: Kind }) {
+  const { filterActive, filter } = useScoped(kind);
   const [open, setOpen] = useState(false);
   const count = filter.categoryIds.length + filter.tagIds.length;
 
@@ -31,14 +32,14 @@ export function FilterButton() {
           </span>
         )}
       </button>
-      {open && <FilterSheet onClose={() => setOpen(false)} />}
+      {open && <FilterSheet kind={kind} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function FilterSheet({ onClose }: { onClose: () => void }) {
+function FilterSheet({ kind, onClose }: { kind: Kind; onClose: () => void }) {
   const { categories, tags, filter, toggleCategoryFilter, toggleTagFilter, clearFilter } =
-    useStore();
+    useScoped(kind);
 
   return createPortal(
     <div

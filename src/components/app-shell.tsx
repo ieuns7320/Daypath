@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { useStore } from "@/lib/data/store";
+import { useScoped, useStore } from "@/lib/data/store";
 import { colorVar } from "@/lib/palette";
 import {
   CalendarIcon,
@@ -40,16 +40,18 @@ function useIsActive() {
 
 function Sidebar() {
   const isActive = useIsActive();
+  const { mode } = useStore();
+  // 할 일 탭에서는 할 일용, 그 밖(캘린더 등)에서는 캘린더용 카테고리·태그
+  const kind = isActive("/todos") ? "task" : "event";
   const {
     categories,
     tags,
-    mode,
     filter,
     filterActive,
     toggleCategoryFilter,
     toggleTagFilter,
     clearFilter,
-  } = useStore();
+  } = useScoped(kind);
 
   return (
     <aside className="hidden w-56 shrink-0 flex-col border-r border-line bg-bg-subtle md:flex">
@@ -91,9 +93,7 @@ function Sidebar() {
             <EmptyHint />
           ) : (
             <ul className="space-y-0.5">
-              {[...categories]
-                .sort((a, b) => a.sort_order - b.sort_order)
-                .map((c) => (
+              {categories.map((c) => (
                   <li key={c.id}>
                     <FilterItem
                       active={filter.categoryIds.includes(c.id)}

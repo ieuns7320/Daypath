@@ -1,4 +1,12 @@
-import type { CalendarEvent, Category, Snapshot, Tag, Task } from "../types";
+import {
+  NO_RECURRENCE,
+  type CalendarEvent,
+  type Category,
+  type Kind,
+  type Snapshot,
+  type Tag,
+  type Task,
+} from "../types";
 import { isColorKey } from "../palette";
 import { supabase } from "./supabase";
 
@@ -43,10 +51,12 @@ function readLocal(): Snapshot {
     if (!raw) return structuredClone(EMPTY);
     const parsed = JSON.parse(raw) as Partial<Snapshot>;
     return {
-      events: parsed.events ?? [],
+      // 예전 데이터에는 반복 칸이 없으므로 기본값을 채운다
+      events: (parsed.events ?? []).map((e) => ({ ...NO_RECURRENCE, ...e })),
       tasks: parsed.tasks ?? [],
-      categories: parsed.categories ?? [],
-      tags: parsed.tags ?? [],
+      // 예전 카테고리·태그에는 kind가 없다 → 캘린더용
+      categories: (parsed.categories ?? []).map((c) => ({ ...c, kind: c.kind ?? "event" })),
+      tags: (parsed.tags ?? []).map((t) => ({ ...t, kind: t.kind ?? "event" })),
     };
   } catch {
     return structuredClone(EMPTY);
@@ -79,9 +89,10 @@ const localRepo: Repo = {
   },
   async remove(table, id) {
     const snap = readLocal();
-    (snap[table] as { id: string }[]) = (snap[table] as { id: string }[]).filter(
-      (r) => r.id !== id,
-    );
+    // 반복 일정을 지우면 떼어 낸 회차도 함께 (DB의 on delete cascade와 같게)
+    (snap[table] as { id: string; series_id?: string | null }[]) = (
+      snap[table] as { id: string; series_id?: string | null }[]
+    ).filter((r) => r.id !== id && r.series_id !== id);
     writeLocal(snap);
   },
   subscribe(onChange) {
@@ -105,7 +116,18 @@ function toEvent(r: Record<string, unknown>): CalendarEvent {
     category_id: (r.category_id as string | null) ?? null,
     tag_ids: (r.tag_ids as string[] | null) ?? [],
     memo: String(r.memo ?? ""),
+    rrule: (r.rrule as string | null) ?? null,
+    exdates: (r.exdates as string[] | null) ?? [],
+    series_id: (r.series_id as string | null) ?? null,
+    original_date: (r.original_date as string | null) ?? null,
   };
+}
+
+/** 003_recurrence.sql 실행 전 DB에는 반복 칸이 없으므로, 저장할 때 그 칸을 뺀다 */
+function withoutRecurrence(e: CalendarEvent) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { rrule, exdates, series_id, original_date, ...rest } = e;
+  return rest;
 }
 
 function toTask(r: Record<string, unknown>): Task {
@@ -124,12 +146,15 @@ function toTask(r: Record<string, unknown>): Task {
   };
 }
 
+const toKind = (v: unknown): Kind => (v === "task" ? "task" : "event");
+
 function toCategory(r: Record<string, unknown>): Category {
   return {
     id: String(r.id),
     name: String(r.name ?? ""),
     color: isColorKey(r.color) ? r.color : "gray",
     sort_order: Number(r.sort_order ?? 0),
+    kind: toKind(r.kind),
   };
 }
 
@@ -138,7 +163,15 @@ function toTag(r: Record<string, unknown>): Tag {
     id: String(r.id),
     name: String(r.name ?? ""),
     color: isColorKey(r.color) ? r.color : "gray",
+    kind: toKind(r.kind),
   };
+}
+
+/** 004_split_categories.sql 실행 전 DB에는 kind 칸이 없으므로, 저장할 때 그 칸을 뺀다 */
+function withoutKind<T extends { kind: Kind }>(row: T) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { kind, ...rest } = row;
+  return rest;
 }
 
 function cloudRepo(): Repo {
@@ -146,14 +179,26 @@ function cloudRepo(): Repo {
   const check = (error: { message: string } | null) => {
     if (error) throw new Error(error.message);
   };
+  // 나중에 추가한 칸이 DB에 있는지 (load 때 확인). 없으면 저장할 때 그 칸을 뺀다.
+  let hasRecurrence = true;
+  let hasKind = true;
+  const prepare = <T extends TableName>(table: T, row: TableRow[T]): TableRow[T] => {
+    if (table === "events" && !hasRecurrence)
+      return withoutRecurrence(row as CalendarEvent) as unknown as TableRow[T];
+    if ((table === "categories" || table === "tags") && !hasKind)
+      return withoutKind(row as Category | Tag) as unknown as TableRow[T];
+    return row;
+  };
   return {
     mode: "cloud",
     async load() {
-      const [ev, task, cat, tag] = await Promise.all([
+      const [ev, task, cat, tag, rec, kind] = await Promise.all([
         db.from("events").select("*"),
         db.from("tasks").select("*"),
         db.from("categories").select("*").order("sort_order"),
         db.from("tags").select("*").order("name"),
+        db.from("events").select("rrule").limit(1),
+        db.from("categories").select("kind").limit(1),
       ]);
       check(ev.error);
       check(cat.error);
@@ -171,20 +216,34 @@ function cloudRepo(): Repo {
         );
       }
       check(task.error);
-      return {
+      const snapshot: Snapshot = {
         events: (ev.data ?? []).map(toEvent),
         tasks: (task.data ?? []).map(toTask),
         categories: (cat.data ?? []).map(toCategory),
         tags: (tag.data ?? []).map(toTag),
       };
+      // 나중에 추가한 칸이 없으면(마이그레이션 전) 그 기능 없이 계속 쓰고 안내만 한다
+      hasRecurrence = !rec.error;
+      hasKind = !kind.error;
+      const missing = [
+        rec.error && "003_recurrence.sql(반복 일정)",
+        kind.error && "004_split_categories.sql(캘린더·할 일 카테고리 분리)",
+      ].filter(Boolean);
+      if (missing.length) {
+        throw new MissingTableError(
+          `DB에 새 칸이 없어요. Supabase SQL Editor에서 supabase/migrations/의 ${missing.join(", ")}을 순서대로 실행해 주세요.`,
+          snapshot,
+        );
+      }
+      return snapshot;
     },
     async upsert(table, row) {
-      const { error } = await db.from(table).upsert(row);
+      const { error } = await db.from(table).upsert(prepare(table, row));
       check(error);
     },
     async upsertMany(table, rows) {
       if (rows.length === 0) return;
-      const { error } = await db.from(table).upsert(rows);
+      const { error } = await db.from(table).upsert(rows.map((r) => prepare(table, r)));
       check(error);
     },
     async remove(table, id) {
