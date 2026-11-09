@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { CalendarEvent, Category, Kind, Snapshot, Tag, Task } from "../types";
+import type { CalendarEvent, Category, Goal, Kind, Milestone, Snapshot, Tag, Task } from "../types";
 import type { EventChanges } from "../series";
 import { MissingTableError, repo } from "./repo";
 
@@ -53,6 +53,12 @@ type Store = Snapshot & {
   deleteCategory(id: string): Promise<void>;
   saveTag(tag: Tag): Promise<void>;
   deleteTag(id: string): Promise<void>;
+  saveGoal(goal: Goal): Promise<void>;
+  /** 목표와 그 마일스톤을 지운다. 연결된 할 일·일정은 연결만 풀린다 */
+  deleteGoal(id: string): Promise<void>;
+  saveMilestone(milestone: Milestone): Promise<void>;
+  /** 마일스톤을 지운다. 연결된 할 일·일정은 연결만 풀린다 */
+  deleteMilestone(id: string): Promise<void>;
 
   /** 캘린더용(event) / 할 일용(task) 카테고리·태그와 필터 (필터도 따로) */
   scoped: Record<Kind, Scoped>;
@@ -60,7 +66,14 @@ type Store = Snapshot & {
 
 const StoreContext = createContext<Store | null>(null);
 
-const EMPTY: Snapshot = { events: [], tasks: [], categories: [], tags: [] };
+const EMPTY: Snapshot = { events: [], tasks: [], categories: [], tags: [], goals: [], milestones: [] };
+
+/** 지워진 마일스톤에 연결돼 있던 할 일·일정은 연결만 푼다 (DB의 on delete set null) */
+function unlinkFrom(s: Snapshot, ids: Set<string>): Pick<Snapshot, "tasks" | "events"> {
+  const unlink = <T extends { milestone_id: string | null }>(x: T): T =>
+    x.milestone_id && ids.has(x.milestone_id) ? { ...x, milestone_id: null } : x;
+  return { tasks: s.tasks.map(unlink), events: s.events.map(unlink) };
+}
 const NO_FILTER: Filter = { categoryIds: [], tagIds: [] };
 
 function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
@@ -269,6 +282,40 @@ export function DataProvider({ children }: { children: ReactNode }) {
           },
         );
       },
+
+      /* 로드맵 */
+      saveGoal: (goal) =>
+        run(
+          (s) => ({ ...s, goals: upsertById(s.goals, goal) }),
+          () => repo.upsert("goals", goal),
+        ),
+      deleteGoal: (id) =>
+        run(
+          (s) => {
+            const gone = new Set(s.milestones.filter((m) => m.goal_id === id).map((m) => m.id));
+            return {
+              ...s,
+              ...unlinkFrom(s, gone),
+              goals: s.goals.filter((g) => g.id !== id),
+              milestones: s.milestones.filter((m) => m.goal_id !== id),
+            };
+          },
+          () => repo.remove("goals", id),
+        ),
+      saveMilestone: (milestone) =>
+        run(
+          (s) => ({ ...s, milestones: upsertById(s.milestones, milestone) }),
+          () => repo.upsert("milestones", milestone),
+        ),
+      deleteMilestone: (id) =>
+        run(
+          (s) => ({
+            ...s,
+            ...unlinkFrom(s, new Set([id])),
+            milestones: s.milestones.filter((m) => m.id !== id),
+          }),
+          () => repo.remove("milestones", id),
+        ),
 
       scoped,
     };

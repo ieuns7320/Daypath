@@ -228,6 +228,7 @@ function Group({
       tag_ids: filter.tagIds.length === 1 ? [filter.tagIds[0]] : [],
       memo: "",
       created_at: now,
+      milestone_id: null,
     });
     // 이어서 입력할 수 있게 칸은 열어 둔다
     setTitle("");

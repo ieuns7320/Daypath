@@ -1,5 +1,5 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { RoadmapClient } from "@/components/roadmap/roadmap-client";
 
 export default function RoadmapPage() {
-  return <ComingSoon title="로드맵" stage="4단계" />;
+  return <RoadmapClient />;
 }

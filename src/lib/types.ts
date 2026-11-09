@@ -45,6 +45,34 @@ export type CalendarEvent = {
    * 종일 일정: 그날 "종일 알림 시각"에서 몇 분 전(0 = 당일, 1440 = 전날). 빈 배열이면 알림 없음.
    */
   reminders: number[];
+  /** 로드맵 마일스톤 연결 ("관련 일정", 진행률에는 들어가지 않음) */
+  milestone_id: string | null;
+};
+
+/** 로드맵 목표 */
+export type Goal = {
+  id: string;
+  title: string;
+  color: ColorKey;
+  /** 목표일 "YYYY-MM-DD" (선택) */
+  target_date: string | null;
+  memo: string;
+  /** 보관함으로 옮긴 목표 */
+  archived: boolean;
+  sort_order: number;
+  created_at: string;
+};
+
+/** 목표 아래 단계 */
+export type Milestone = {
+  id: string;
+  goal_id: string;
+  title: string;
+  target_date: string | null;
+  /** 연결된 할 일이 없을 때만 쓰는 완료 표시 (할 일이 있으면 할 일로 계산) */
+  done: boolean;
+  sort_order: number;
+  created_at: string;
 };
 
 /** 알림 설정 (모든 기기 공통, user_settings 테이블) */
@@ -92,6 +120,8 @@ export type Task = {
   tag_ids: string[];
   memo: string;
   created_at: string;
+  /** 로드맵 마일스톤 연결 (진행률에 들어감) */
+  milestone_id: string | null;
 };
 
 export type Snapshot = {
@@ -99,4 +129,6 @@ export type Snapshot = {
   tasks: Task[];
   categories: Category[];
   tags: Tag[];
+  goals: Goal[];
+  milestones: Milestone[];
 };

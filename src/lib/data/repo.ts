@@ -2,7 +2,9 @@ import {
   NO_RECURRENCE,
   type CalendarEvent,
   type Category,
+  type Goal,
   type Kind,
+  type Milestone,
   type Snapshot,
   type Tag,
   type Task,
@@ -15,6 +17,8 @@ export type TableRow = {
   tasks: Task;
   categories: Category;
   tags: Tag;
+  goals: Goal;
+  milestones: Milestone;
 };
 export type TableName = keyof TableRow;
 
@@ -29,7 +33,7 @@ export interface Repo {
   subscribe(onChange: () => void): () => void;
 }
 
-const EMPTY: Snapshot = { events: [], tasks: [], categories: [], tags: [] };
+const EMPTY: Snapshot = { events: [], tasks: [], categories: [], tags: [], goals: [], milestones: [] };
 
 /** 일부 테이블이 없을 때: 나머지 데이터(partial)는 정상으로 쓰고 메시지만 보여준다. */
 export class MissingTableError extends Error {
@@ -51,12 +55,19 @@ function readLocal(): Snapshot {
     if (!raw) return structuredClone(EMPTY);
     const parsed = JSON.parse(raw) as Partial<Snapshot>;
     return {
-      // 예전 데이터에는 반복 칸이 없으므로 기본값을 채운다
-      events: (parsed.events ?? []).map((e) => ({ ...NO_RECURRENCE, ...e, reminders: e.reminders ?? [] })),
-      tasks: parsed.tasks ?? [],
+      // 예전 데이터에는 나중에 생긴 칸이 없으므로 기본값을 채운다
+      events: (parsed.events ?? []).map((e) => ({
+        ...NO_RECURRENCE,
+        ...e,
+        reminders: e.reminders ?? [],
+        milestone_id: e.milestone_id ?? null,
+      })),
+      tasks: (parsed.tasks ?? []).map((t) => ({ ...t, milestone_id: t.milestone_id ?? null })),
       // 예전 카테고리·태그에는 kind가 없다 → 캘린더용
       categories: (parsed.categories ?? []).map((c) => ({ ...c, kind: c.kind ?? "event" })),
       tags: (parsed.tags ?? []).map((t) => ({ ...t, kind: t.kind ?? "event" })),
+      goals: parsed.goals ?? [],
+      milestones: parsed.milestones ?? [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -69,6 +80,14 @@ function writeLocal(snapshot: Snapshot) {
   } catch {
     // 저장 공간 부족 / 사생활 보호 모드 등: 메모리 상태만 유지
   }
+}
+
+/** 마일스톤이 지워지면 연결된 할 일·일정은 연결만 푼다 (DB의 on delete set null과 같게) */
+function unlinkMilestones(snap: Snapshot, ids: Set<string>) {
+  const unlink = <T extends { milestone_id: string | null }>(x: T): T =>
+    x.milestone_id && ids.has(x.milestone_id) ? { ...x, milestone_id: null } : x;
+  snap.tasks = snap.tasks.map(unlink);
+  snap.events = snap.events.map(unlink);
 }
 
 const localRepo: Repo = {
@@ -89,10 +108,21 @@ const localRepo: Repo = {
   },
   async remove(table, id) {
     const snap = readLocal();
-    // 반복 일정을 지우면 떼어 낸 회차도 함께 (DB의 on delete cascade와 같게)
-    (snap[table] as { id: string; series_id?: string | null }[]) = (
-      snap[table] as { id: string; series_id?: string | null }[]
-    ).filter((r) => r.id !== id && r.series_id !== id);
+    if (table === "goals") {
+      // 목표를 지우면 그 마일스톤도 (DB의 on delete cascade와 같게)
+      const gone = new Set(snap.milestones.filter((m) => m.goal_id === id).map((m) => m.id));
+      snap.goals = snap.goals.filter((g) => g.id !== id);
+      snap.milestones = snap.milestones.filter((m) => m.goal_id !== id);
+      unlinkMilestones(snap, gone);
+    } else if (table === "milestones") {
+      snap.milestones = snap.milestones.filter((m) => m.id !== id);
+      unlinkMilestones(snap, new Set([id]));
+    } else {
+      // 반복 일정을 지우면 떼어 낸 회차도 함께 (DB의 on delete cascade와 같게)
+      (snap[table] as { id: string; series_id?: string | null }[]) = (
+        snap[table] as { id: string; series_id?: string | null }[]
+      ).filter((r) => r.id !== id && r.series_id !== id);
+    }
     writeLocal(snap);
   },
   subscribe(onChange) {
@@ -121,6 +151,7 @@ function toEvent(r: Record<string, unknown>): CalendarEvent {
     series_id: (r.series_id as string | null) ?? null,
     original_date: (r.original_date as string | null) ?? null,
     reminders: (r.reminders as number[] | null) ?? [],
+    milestone_id: (r.milestone_id as string | null) ?? null,
   };
 }
 
@@ -138,6 +169,13 @@ function withoutReminders<T extends Partial<CalendarEvent>>(e: T) {
   return rest;
 }
 
+/** 006_roadmap.sql 실행 전 DB에는 마일스톤 연결 칸이 없으므로, 저장할 때 그 칸을 뺀다 */
+function withoutMilestone<T extends { milestone_id?: string | null }>(row: T) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { milestone_id, ...rest } = row;
+  return rest;
+}
+
 function toTask(r: Record<string, unknown>): Task {
   return {
     id: String(r.id),
@@ -151,6 +189,7 @@ function toTask(r: Record<string, unknown>): Task {
     tag_ids: (r.tag_ids as string[] | null) ?? [],
     memo: String(r.memo ?? ""),
     created_at: String(r.created_at ?? new Date().toISOString()),
+    milestone_id: (r.milestone_id as string | null) ?? null,
   };
 }
 
@@ -175,6 +214,31 @@ function toTag(r: Record<string, unknown>): Tag {
   };
 }
 
+function toGoal(r: Record<string, unknown>): Goal {
+  return {
+    id: String(r.id),
+    title: String(r.title ?? ""),
+    color: isColorKey(r.color) ? r.color : "blue",
+    target_date: (r.target_date as string | null) ?? null,
+    memo: String(r.memo ?? ""),
+    archived: Boolean(r.archived),
+    sort_order: Number(r.sort_order ?? 0),
+    created_at: String(r.created_at ?? new Date().toISOString()),
+  };
+}
+
+function toMilestone(r: Record<string, unknown>): Milestone {
+  return {
+    id: String(r.id),
+    goal_id: String(r.goal_id),
+    title: String(r.title ?? ""),
+    target_date: (r.target_date as string | null) ?? null,
+    done: Boolean(r.done),
+    sort_order: Number(r.sort_order ?? 0),
+    created_at: String(r.created_at ?? new Date().toISOString()),
+  };
+}
+
 /** 004_split_categories.sql 실행 전 DB에는 kind 칸이 없으므로, 저장할 때 그 칸을 뺀다 */
 function withoutKind<T extends { kind: Kind }>(row: T) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -191,13 +255,17 @@ function cloudRepo(): Repo {
   let hasRecurrence = true;
   let hasKind = true;
   let hasReminders = true;
+  let hasRoadmap = true;
   const prepare = <T extends TableName>(table: T, row: TableRow[T]): TableRow[T] => {
     if (table === "events") {
       let e: Partial<CalendarEvent> = row as CalendarEvent;
       if (!hasRecurrence) e = withoutRecurrence(e);
       if (!hasReminders) e = withoutReminders(e);
+      if (!hasRoadmap) e = withoutMilestone(e);
       return e as unknown as TableRow[T];
     }
+    if (table === "tasks" && !hasRoadmap)
+      return withoutMilestone(row as Task) as unknown as TableRow[T];
     if ((table === "categories" || table === "tags") && !hasKind)
       return withoutKind(row as Category | Tag) as unknown as TableRow[T];
     return row;
@@ -205,11 +273,13 @@ function cloudRepo(): Repo {
   return {
     mode: "cloud",
     async load() {
-      const [ev, task, cat, tag, rec, kind, rem] = await Promise.all([
+      const [ev, task, cat, tag, goal, ms, rec, kind, rem] = await Promise.all([
         db.from("events").select("*"),
         db.from("tasks").select("*"),
         db.from("categories").select("*").order("sort_order"),
         db.from("tags").select("*").order("name"),
+        db.from("goals").select("*").order("sort_order"),
+        db.from("milestones").select("*").order("sort_order"),
         db.from("events").select("rrule").limit(1),
         db.from("categories").select("kind").limit(1),
         db.from("events").select("reminders").limit(1),
@@ -222,8 +292,8 @@ function cloudRepo(): Repo {
         throw new MissingTableError(
           "할 일 테이블이 없어요. Supabase SQL Editor에서 supabase/migrations/002_tasks.sql을 실행해 주세요.",
           {
+            ...EMPTY,
             events: (ev.data ?? []).map(toEvent),
-            tasks: [],
             categories: (cat.data ?? []).map(toCategory),
             tags: (tag.data ?? []).map(toTag),
           },
@@ -235,15 +305,20 @@ function cloudRepo(): Repo {
         tasks: (task.data ?? []).map(toTask),
         categories: (cat.data ?? []).map(toCategory),
         tags: (tag.data ?? []).map(toTag),
+        // 로드맵 테이블이 없으면(006 실행 전) 빈 로드맵
+        goals: goal.error ? [] : (goal.data ?? []).map(toGoal),
+        milestones: ms.error ? [] : (ms.data ?? []).map(toMilestone),
       };
       // 나중에 추가한 칸이 없으면(마이그레이션 전) 그 기능 없이 계속 쓰고 안내만 한다
       hasRecurrence = !rec.error;
       hasKind = !kind.error;
       hasReminders = !rem.error;
+      hasRoadmap = !goal.error && !ms.error;
       const missing = [
         rec.error && "003_recurrence.sql(반복 일정)",
         kind.error && "004_split_categories.sql(캘린더·할 일 카테고리 분리)",
         rem.error && "005_notifications.sql(알림)",
+        !hasRoadmap && "006_roadmap.sql(로드맵)",
       ].filter(Boolean);
       if (missing.length) {
         throw new MissingTableError(
@@ -279,9 +354,16 @@ function cloudRepo(): Repo {
         .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, debounced)
         .on("postgres_changes", { event: "*", schema: "public", table: "tags" }, debounced)
         .subscribe();
+      // 로드맵은 채널을 따로: 006 실행 전이라 테이블이 없어도 위 채널은 영향 받지 않게
+      const roadmap = db
+        .channel("daypath-sync-roadmap")
+        .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, debounced)
+        .on("postgres_changes", { event: "*", schema: "public", table: "milestones" }, debounced)
+        .subscribe();
       return () => {
         clearTimeout(timer);
         db.removeChannel(channel);
+        db.removeChannel(roadmap);
       };
     },
   };

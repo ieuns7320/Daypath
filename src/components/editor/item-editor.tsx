@@ -28,6 +28,7 @@ import {
   type RecurrenceRule,
   type RepeatPreset,
 } from "@/lib/recurrence";
+import { sortGoals, sortMilestones } from "@/lib/roadmap";
 import { deleteOccurrence, updateOccurrence, type Scope } from "@/lib/series";
 import type { CalendarEvent, Task } from "@/lib/types";
 import { HashIcon, XIcon } from "../icons";
@@ -108,6 +109,7 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
         : (categories[0]?.id ?? null),
       tagIds: (base?.tag_ids ?? []).filter((id) => tags.some((t) => t.id === id)),
       memo: base?.memo ?? "",
+      milestoneId: base?.milestone_id ?? null,
       evAllDay,
       evStartDate: toDateInput(evStart),
       evStartTime: toTimeInput(evStart),
@@ -125,6 +127,7 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
   const [categoryId, setCategoryId] = useState<string | null>(init.categoryId);
   const [tagIds, setTagIds] = useState<string[]>(init.tagIds);
   const [memo, setMemo] = useState(init.memo);
+  const [milestoneId, setMilestoneId] = useState<string | null>(init.milestoneId);
   // 일정
   const [allDay, setAllDay] = useState(init.evAllDay);
   const [startDate, setStartDate] = useState(init.evStartDate);
@@ -204,6 +207,7 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
         series_id: existingEvent?.series_id ?? null,
         original_date: existingEvent?.original_date ?? null,
         reminders: [...reminders].sort((a, b) => a - b),
+        milestone_id: milestoneId,
       };
       if (existingEvent && occDate) {
         // 반복 회차: 범위를 물은 뒤 저장 (규칙을 바꿨으면 "이 일정만"은 없음)
@@ -224,6 +228,7 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
         category_id: categoryId,
         tag_ids: tagIds,
         memo,
+        milestone_id: milestoneId,
       };
       onClose();
       await store.saveTask(task);
@@ -458,6 +463,9 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
             )}
           </div>
 
+          {/* 로드맵 마일스톤 연결 (할 일은 진행률에 들어가고, 일정은 관련 일정으로 보임) */}
+          <MilestoneField value={milestoneId} onChange={setMilestoneId} />
+
           <textarea
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
@@ -639,6 +647,45 @@ function RepeatField({
           <p className="text-xs text-fg-faint">{describeRule({ ...custom, byday: days }, start)}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 로드맵: 목표별로 묶은 마일스톤 중 하나 (보관한 목표는 지금 연결된 것만 보인다) */
+function MilestoneField({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const { goals, milestones } = useStore();
+  const current = milestones.find((m) => m.id === value);
+  const shown = sortGoals(goals).filter((g) => !g.archived || g.id === current?.goal_id);
+  const groups = shown
+    .map((g) => ({ goal: g, list: sortMilestones(milestones.filter((m) => m.goal_id === g.id)) }))
+    .filter((x) => x.list.length > 0);
+  if (groups.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-2 text-xs text-fg-faint">로드맵</p>
+      <select
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+        className={`${inputCls} w-full max-w-full`}
+        aria-label="로드맵 마일스톤"
+      >
+        <option value="">연결 안 함</option>
+        {groups.map(({ goal, list }) => (
+          <optgroup key={goal.id} label={goal.title || "(제목 없음)"}>
+            {list.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.title || "(제목 없음)"}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
     </div>
   );
 }

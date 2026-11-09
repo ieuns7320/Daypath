@@ -5,7 +5,7 @@ import { useScoped, useStore } from "@/lib/data/store";
 import { dueLabel, todayInput } from "@/lib/date";
 import { colorVar } from "@/lib/palette";
 import type { Task } from "@/lib/types";
-import { MoreIcon } from "../icons";
+import { MoreIcon, TargetIcon } from "../icons";
 import { nextDay } from "./mini-month";
 import { TaskCheckbox } from "./task-checkbox";
 
@@ -17,16 +17,21 @@ export function TaskRow({
   task,
   onOpen,
   showDate = false,
+  inRoadmap = false,
 }: {
   task: Task;
   onOpen: () => void;
-  /** 밀린 할 일처럼 원래 날짜를 함께 보여 줄 때 */
+  /** 밀린 할 일처럼 원래 날짜를 빨갛게 + [오늘로] */
   showDate?: boolean;
+  /** 로드맵 안: 날짜를 흐리게 보여 주고, 마일스톤 이름은 빼고(이미 그 아래라서) */
+  inRoadmap?: boolean;
 }) {
-  const { toggleTask, saveTask, deleteTask } = useStore();
+  const { toggleTask, saveTask, deleteTask, milestones } = useStore();
   const { categories, tags } = useScoped("task");
   const category = categories.find((c) => c.id === task.category_id);
   const taskTags = tags.filter((t) => task.tag_ids.includes(t.id));
+  const milestone = inRoadmap ? undefined : milestones.find((m) => m.id === task.milestone_id);
+  const plainDate = inRoadmap && task.due_date;
   const today = todayInput();
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -65,9 +70,20 @@ export function TaskRow({
         <p className={`truncate text-[15px] ${task.done ? "text-fg-faint line-through" : ""}`}>
           {task.title}
         </p>
-        {(taskTags.length > 0 || (showDate && task.due_date)) && (
+        {(taskTags.length > 0 || (showDate && task.due_date) || milestone || plainDate) && (
           <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-fg-muted">
             {showDate && task.due_date && <span className="text-danger">{dueLabel(task.due_date)}</span>}
+            {plainDate && (
+              <span className={task.due_date! < today && !task.done ? "text-danger" : ""}>
+                {dueLabel(task.due_date!)}
+              </span>
+            )}
+            {milestone && (
+              <span className="flex items-center gap-1" title="로드맵 마일스톤">
+                <TargetIcon width={12} height={12} />
+                {milestone.title}
+              </span>
+            )}
             {taskTags.map((t) => (
               <span key={t.id} className="flex items-center gap-1">
                 <span className="size-[7px] rounded-full" style={{ background: colorVar(t.color) }} />

@@ -48,14 +48,15 @@ src/
   app/(main)/        캘린더 · 할 일 · 로드맵 · 설정 화면 (layout: 로그인 → 데이터 → 앱 틀)
   app/api/push/      알림 발송 (Supabase pg_cron이 1분마다 호출)
   app/manifest.ts    PWA manifest (아이콘: app/icon.svg, app/apple-icon.png, public/icons/)
-  components/        앱 틀(app-shell: 사이드바/하단 탭), 로그인(auth-gate), 준비 중 화면, 서비스 워커 등록
+  components/        앱 틀(app-shell: 사이드바/하단 탭), 로그인(auth-gate), 서비스 워커 등록
     calendar/        캘린더(일정만), 캘린더 색·모양 CSS
     editor/          일정·할 일 공용 편집 창, 반복 범위 선택 창
     tasks/           할 일 탭(미니 캘린더 + 카테고리별 목록), 할 일 행, 체크박스
+    roadmap/         로드맵 탭(목표 목록 + 상세), 목표·마일스톤 수정 창
     filter/          모바일 필터 시트
     settings/        테마, 카테고리·태그 관리, 로그아웃
   lib/data/          Supabase 클라이언트, 저장소(로컬 / Supabase), 전역 상태(필터 포함)
-  lib/               타입, 색상 팔레트, 날짜 도우미, 할 일 탭 계산(링·밀린 할 일·묶음), 반복 규칙 계산(recurrence·series)
+  lib/               타입, 색상 팔레트, 날짜 도우미, 할 일 탭 계산(링·밀린 할 일·묶음), 반복 규칙 계산(recurrence·series), 로드맵 진행률(roadmap)
 scripts/            앱 아이콘 원본·PNG 생성(make-icons.mjs), 알림 키 생성(make-push-keys.mjs)
 supabase/schema.sql  기본 DB 테이블 · 보안 규칙(RLS) · 실시간 설정
 supabase/migrations/ 이후 추가된 테이블·칸 (번호 순서대로 실행)
@@ -72,4 +73,5 @@ docs/SPEC.md         기획 · 화면 규칙 · 결정 기록 · 다른 PC 세�
 - [x] 캘린더·할 일 분리, 할 일 탭 개편 (2026-11-09)
 - [x] 캘린더·할 일 카테고리·태그 분리
 - [x] 3단계: 반복 일정, PWA 설치(아이콘·manifest·서비스 워커·설정 안내), Vercel 배포, 알림 (2026-11-09)
-- [ ] 4단계: 로드맵
+- [x] 4a: 로드맵 (목표 → 마일스톤 → 할 일·일정 연결, 진행률, 보관함) (2026-11-09)
+- [ ] 4b: 로드맵 타임라인 보기
