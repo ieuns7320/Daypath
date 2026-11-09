@@ -4,7 +4,7 @@
 
 - 작성일: 2026-11-06
 - 최종 수정: 2026-11-09
-- 상태: **3단계 진행 중**: 3a 반복 일정 완료, 캘린더·할 일 분리 완료, 3b 배포·PWA 완료(https://daypath-ten.vercel.app), 3c 알림 코드 완료·설정 대기 ([10.7](#107-3단계-시작-전에-사용자와-정할-것))
+- 상태: **3단계 완료** (반복 일정, 캘린더·할 일 분리, 배포·PWA https://daypath-ten.vercel.app, 알림). 다음은 4단계 로드맵 (시작 전에 구상을 맞춘다)
 - 다른 PC에서 이어서 작업할 때: [10. 다른 PC에서 이어서 작업하기](#10-다른-pc에서-이어서-작업하기)
 - 작업 규칙: 작업이 끝날 때마다 새로 정한 내용을 이 문서에 반영한다. 결정 이력은 [11. 결정 기록](#11-결정-기록)에 쌓는다.
 
@@ -374,7 +374,7 @@
 |---|---|---|
 | **1단계** | 프로젝트 세팅, 로그인/동기화, 일정 CRUD (종일·여러 날 포함), 카테고리·태그 (색상), 일간/주간/월간 보기, 드래그 이동·리사이즈, 다크 모드 | ✅ 완료 |
 | **2단계** | 할 일 탭 (완료 체크, 마감일), 캘린더에 할 일 표시, 타임 블로킹, 카테고리/태그 필터 | ✅ 완료 |
-| **3단계** | 3a 반복 일정 / 3b Vercel 배포·PWA 설치(아이콘·manifest·서비스 워커) / 3c 알림 (Web Push) | 진행 중: 3a ✅ 완료, 캘린더·할 일 분리 + 할 일 탭 개편 ✅ (2026-11-09), 3b 배포·PWA ✅ (2026-11-09), 3c 알림 코드 ✅ · 키·SQL 설정과 실제 발송 확인 남음 |
+| **3단계** | 3a 반복 일정 / 3b Vercel 배포·PWA 설치(아이콘·manifest·서비스 워커) / 3c 알림 (Web Push) | 진행 중: 3a ✅ 완료, 캘린더·할 일 분리 + 할 일 탭 개편 ✅ (2026-11-09), 3b 배포·PWA ✅ (2026-11-09), 3c 알림 ✅ (2026-11-09) → **완료** |
 | **4단계** | 로드맵 탭 (목표 → 마일스톤 → 일정/할 일 연결, 진행률, 트리/타임라인 보기) | |
 
 남은 일 (단계 무관):
@@ -413,7 +413,7 @@ DB는 클라우드(Supabase)에 있으므로 PC를 옮겨도 SQL을 다시 실�
 |---|---|
 | GitHub | `ieuns7320/Daypath`, 브랜치 `main` 하나 |
 | Supabase 프로젝트 | `xcbmvnhjowsuycfbapvn` (리전 서울) |
-| 실행한 SQL | `supabase/schema.sql`(1단계) ✅, `supabase/migrations/002_tasks.sql` ✅, `003_recurrence.sql` ✅, `004_split_categories.sql` ✅ (2026-11-09), `005_notifications.sql` ⬜ **아직 실행 안 함** (Vault 비밀 값 2개도 함께) |
+| 실행한 SQL | `supabase/schema.sql`(1단계) ✅, `supabase/migrations/002_tasks.sql` ✅, `003_recurrence.sql` ✅, `004_split_categories.sql` ✅ (2026-11-09), `005_notifications.sql` ✅ + Vault `daypath_push_secret`·`daypath_app_url` ✅ (2026-11-09) |
 | 로그인 | 이메일+비밀번호. 가입 시 확인 메일 필요(Supabase 기본값). 사용자 계정 1개 생성·확인 완료 |
 | Auth Site URL | `https://daypath-ten.vercel.app` (2026-11-09). Redirect URLs: `https://daypath-ten.vercel.app/**`, `http://localhost:3000/**` |
 | 배포 | Vercel 프로젝트 `daypath` (Hobby), **https://daypath-ten.vercel.app**. GitHub `main`에 push하면 자동 배포. 환경 변수 `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Production·Preview, Sensitive) |
@@ -483,7 +483,7 @@ components/settings/    테마, 카테고리·태그 관리, 앱 설치, 알림,
 - 모바일 일간 보기 제목("2026년 11월 6일")은 헤더가 좁아 잘릴 수 있다. 확인하지 않았다.
 - "Can't perform a React state update on a component that hasn't mounted yet" 에러는 마운트 후 렌더링으로 고쳤지만, 원래 재현이 잘 안 되던 문제라 다시 보이면 원인을 다시 본다 (2장 구현 시 주의).
 - 로드맵은 아직 없다. 로드맵 탭은 "준비 중" 화면(`coming-soon.tsx`).
-- 3c 알림: 예약 계산(`buildQueue`)은 임시 스크립트로 확인했고(시간·종일·반복 회차·빠진 회차·할 일 묶음·지난 시각 제외), `/api/push`가 비밀 없는 요청을 403으로 막는 것까지 확인했다. **실제 발송(pg_cron → Vercel → 기기)은 사용자가 키·SQL을 설정한 뒤 확인해야 한다.**
+- 3c 알림: 예약 계산(`buildQueue`)은 임시 스크립트로 확인했고(시간·종일·반복 회차·빠진 회차·할 일 묶음·지난 시각 제외), `/api/push`가 비밀 없는 요청을 403으로 막는 것까지 확인했다. 2026-11-09 사용자가 키·SQL을 설정했고, **iPhone(홈 화면 앱)과 Windows PC 모두 테스트 알림이 왔다**(pg_cron → Vercel → 기기 전체 경로 확인). 일정·할 일 예약 알림은 같은 경로를 쓰며, 실제 시각에 오는지는 쓰면서 확인한다.
 - VAPID 키를 바꾸면 기존 기기 구독이 맞지 않아 알림이 안 간다. 그때는 각 기기에서 알림을 끄고 다시 켠다.
 - 알림을 눌렀을 때 해당 날짜로 가지 않고 캘린더/할 일 탭만 연다.
 - 반복 일정은 로컬 모드(3001)에서만 확인했다. 003·004는 2026-11-09 클라우드에 실행했다. 클라우드에서 반복 일정 저장·실시간 동기화는 사용자가 쓰면서 확인한다.
@@ -605,3 +605,4 @@ components/settings/    테마, 카테고리·태그 관리, 앱 설치, 알림,
 | 2026-11-09 | 알림 설정은 모든 기기 공통(`user_settings`), 켜기·끄기는 기기마다 | 기기마다 권한이 따로 |
 | 2026-11-09 | 005 이전 일정에는 알림 기본값을 일괄 적용하지 않음 | 갑자기 알림이 쏟아지지 않게 |
 | 2026-11-09 | Route Handler에 `export const runtime` 쓰지 않음 | Cache Components와 함께 쓸 수 없음(빌드 오류), Node가 기본 |
+| 2026-11-09 | 3c 알림 실제 발송 확인 (iPhone 홈 화면 앱, Windows PC), 3단계 완료 | 사용자 확인 |
