@@ -253,6 +253,24 @@ function ProgressBar({ value, color, thin = false }: { value: number; color: str
 
 /* ---------- 상세 ---------- */
 
+/* 접은 마일스톤 (기기에 저장) */
+const FOLD_KEY = "daypath:roadmap-folded";
+function readFolded(): Set<string> {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(FOLD_KEY) ?? "[]");
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+function saveFolded(ids: Set<string>) {
+  try {
+    localStorage.setItem(FOLD_KEY, JSON.stringify([...ids]));
+  } catch {
+    // 저장 못 해도 이번 화면에서는 적용됨
+  }
+}
+
 function GoalDetail({
   info,
   onEditGoal,
@@ -266,6 +284,27 @@ function GoalDetail({
 }) {
   const { goal, milestones, progress, completeCount } = info;
   const color = colorVar(goal.color);
+  const [folded, setFolded] = useState(readFolded);
+  const update = (next: Set<string>) => {
+    setFolded(next);
+    saveFolded(next);
+  };
+  const toggle = (id: string) => {
+    const next = new Set(folded);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    update(next);
+  };
+  const allFolded = milestones.length > 0 && milestones.every((m) => folded.has(m.milestone.id));
+  const foldAll = () => {
+    const next = new Set(folded);
+    for (const m of milestones) {
+      if (allFolded) next.delete(m.milestone.id);
+      else next.add(m.milestone.id);
+    }
+    update(next);
+  };
+
   return (
     <div className="max-w-2xl px-4 pb-24 pt-5 md:px-8">
       {/* 목표 머리 */}
@@ -292,12 +331,29 @@ function GoalDetail({
       </div>
 
       {/* 마일스톤 */}
-      <div className="mt-8 space-y-7">
+      {milestones.length > 1 && (
+        <div className="mt-6 flex justify-end">
+          <button
+            onClick={foldAll}
+            className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
+          >
+            <ChevronDownIcon
+              width={14}
+              height={14}
+              className={`transition-transform ${allFolded ? "-rotate-90" : ""}`}
+            />
+            {allFolded ? "모두 펼치기" : "모두 접기"}
+          </button>
+        </div>
+      )}
+      <div className={`${milestones.length > 1 ? "mt-3" : "mt-8"} space-y-7`}>
         {milestones.map((m) => (
           <MilestoneBlock
             key={m.milestone.id}
             info={m}
             color={color}
+            folded={folded.has(m.milestone.id)}
+            onToggle={() => toggle(m.milestone.id)}
             onOpenTask={onOpenTask}
             onOpenEvent={onOpenEvent}
           />
@@ -312,11 +368,15 @@ function GoalDetail({
 function MilestoneBlock({
   info,
   color,
+  folded,
+  onToggle,
   onOpenTask,
   onOpenEvent,
 }: {
   info: MilestoneInfo;
   color: string;
+  folded: boolean;
+  onToggle: () => void;
   onOpenTask: (t: Task) => void;
   onOpenEvent: (e: CalendarEvent) => void;
 }) {
@@ -368,9 +428,21 @@ function MilestoneBlock({
           </span>
         )}
         <span className="w-10 shrink-0 text-right text-xs tabular-nums text-fg-muted">{percent(progress)}</span>
+        <button
+          onClick={onToggle}
+          aria-expanded={!folded}
+          aria-label={`${milestone.title} ${folded ? "펼치기" : "접기"}`}
+          className="-mr-1 shrink-0 rounded p-1 text-fg-faint hover:bg-bg-hover hover:text-fg"
+        >
+          <ChevronDownIcon
+            width={16}
+            height={16}
+            className={`transition-transform ${folded ? "-rotate-90" : ""}`}
+          />
+        </button>
       </div>
       {!manual && (
-        <div className="ml-[30px] mt-1.5 flex items-center gap-2">
+        <div className="ml-[30px] mr-5 mt-1.5 flex items-center gap-2">
           <ProgressBar value={progress} color={color} thin />
           <span className="shrink-0 text-[11px] tabular-nums text-fg-faint">
             {doneCount}/{tasks.length}
@@ -378,7 +450,8 @@ function MilestoneBlock({
         </div>
       )}
 
-      <div className="ml-[18px] mt-1">
+      {/* 접으면 진행 막대까지만 보이고, 할 일·일정·추가 줄은 숨긴다 */}
+      <div className={`ml-[18px] mt-1 ${folded ? "hidden" : ""}`}>
         {tasks.map((t) => (
           <TaskRow key={t.id} task={t} inRoadmap onOpen={() => onOpenTask(t)} />
         ))}
