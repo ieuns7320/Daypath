@@ -10,6 +10,7 @@ import {
   monthKey,
   monthSum,
   parseWon,
+  plannedEntries,
   shortWon,
   signedWon,
   type DaySum,
@@ -18,7 +19,7 @@ import { colorVar } from "@/lib/palette";
 import type { MoneyEntry } from "@/lib/types";
 import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from "../icons";
 import { MoneyEditor, type MoneyTarget } from "./money-editor";
-import { useMoneyCategorySeed } from "./seed";
+import { useMoneyCategorySeed, useRecurringSync } from "./seed";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -28,18 +29,27 @@ const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
  */
 export function MoneyView() {
   const store = useStore();
-  const { money_entries, money_categories, money_budgets, moneyAvailable, ready, mode } = store;
+  const { money_entries, money_categories, money_budgets, money_recurring, moneyAvailable, ready, mode } = store;
   const today = todayInput();
   const [selected, setSelected] = useState(today);
   const [month, setMonth] = useState(monthKey(today));
   const [editor, setEditor] = useState<MoneyTarget | null>(null);
 
   useMoneyCategorySeed();
+  useRecurringSync();
 
   const sums = useMemo(() => daySums(money_entries), [money_entries]);
   const total = useMemo(() => monthSum(money_entries, month), [money_entries, month]);
   const budget = budgetFor(month, money_budgets);
   const categoryOf = useMemo(() => new Map(money_categories.map((c) => [c.id, c])), [money_categories]);
+  // 아직 날이 오지 않은 고정 항목 (흐리게, 합계 제외)
+  const planned = useMemo(
+    () => plannedEntries(money_recurring, money_entries, month, today),
+    [money_recurring, money_entries, month, today],
+  );
+  const plannedSums = useMemo(() => daySums(planned), [planned]);
+  const plannedExpense = planned.reduce((n, e) => n + (e.type === "expense" ? e.amount : 0), 0);
+  const dayPlanned = planned.filter((e) => e.date === selected);
 
   const dayEntries = money_entries
     .filter((e) => e.date === selected)
@@ -110,9 +120,9 @@ export function MoneyView() {
             </button>
           </div>
 
-          <Summary month={month} today={today} total={total} budgetAmount={budget?.amount ?? null} />
+          <Summary month={month} today={today} total={total} plannedExpense={plannedExpense} budgetAmount={budget?.amount ?? null} />
 
-          <MoneyMonth month={month} selected={selected} today={today} sums={sums} onSelect={pick} />
+          <MoneyMonth month={month} selected={selected} today={today} sums={sums} plannedSums={plannedSums} onSelect={pick} />
         </aside>
 
         {/* 고른 날 기록 */}
@@ -127,7 +137,7 @@ export function MoneyView() {
               </span>
             </div>
 
-            {dayEntries.length === 0 ? (
+            {dayEntries.length === 0 && dayPlanned.length === 0 ? (
               <p className="px-1 py-2 text-sm text-fg-faint">기록이 없어요.</p>
             ) : (
               <ul className="space-y-0.5">
@@ -137,6 +147,15 @@ export function MoneyView() {
                     entry={e}
                     category={e.category_id ? categoryOf.get(e.category_id) : undefined}
                     onOpen={() => setEditor({ kind: "entry", id: e.id })}
+                  />
+                ))}
+                {dayPlanned.map((e) => (
+                  <EntryRow
+                    key={e.id}
+                    entry={e}
+                    planned
+                    category={e.category_id ? categoryOf.get(e.category_id) : undefined}
+                    onOpen={() => setEditor({ kind: "planned", ruleId: e.recurring_id!, month })}
                   />
                 ))}
               </ul>
@@ -164,11 +183,13 @@ function Summary({
   month,
   today,
   total,
+  plannedExpense,
   budgetAmount,
 }: {
   month: string;
   today: string;
   total: DaySum;
+  plannedExpense: number;
   budgetAmount: number | null;
 }) {
   const { saveMoneyBudget, money_budgets } = useStore();
@@ -240,6 +261,9 @@ function Summary({
           <span className="ml-2 text-fg-faint">수입</span>
           <span className="font-semibold tabular-nums text-[var(--c-blue)]">{formatWon(total.income)}</span>
         </div>
+        {plannedExpense > 0 && (
+          <p className="text-xs tabular-nums text-fg-faint">고정 지출 예정 {formatWon(plannedExpense)}</p>
+        )}
         <button onClick={open} className="text-xs text-fg-faint hover:text-fg">
           + 예산 정하기
         </button>
@@ -280,6 +304,7 @@ function Summary({
       <p className="mt-0.5 text-xs tabular-nums text-fg-faint">
         {isThisMonth && left > 0 && `하루 ${formatWon(Math.floor(left / daysLeft))}원 (${daysLeft}일 남음) · `}
         수입 <span className="text-[var(--c-blue)]">{formatWon(total.income)}</span>
+        {plannedExpense > 0 && ` · 고정 지출 예정 ${formatWon(plannedExpense)}`}
       </p>
     </div>
   );
@@ -292,12 +317,14 @@ function MoneyMonth({
   selected,
   today,
   sums,
+  plannedSums,
   onSelect,
 }: {
   month: string;
   selected: string;
   today: string;
   sums: Map<string, DaySum>;
+  plannedSums: Map<string, DaySum>;
   onSelect: (date: string) => void;
 }) {
   const first = fromInputs(month);
@@ -319,6 +346,7 @@ function MoneyMonth({
         const day = Number(date.slice(8));
         const dow = (first.getDay() + day - 1) % 7;
         const s = sums.get(date);
+        const p = plannedSums.get(date);
         const isSel = date === selected;
         return (
           <button
@@ -347,6 +375,9 @@ function MoneyMonth({
             </span>
             {s?.expense ? <Amount value={s.expense} className="text-danger" /> : null}
             {s?.income ? <Amount value={s.income} plus className="text-[var(--c-blue)]" /> : null}
+            {/* 예정(고정 항목, 아직 날이 안 옴): 흐리게 */}
+            {p?.expense ? <Amount value={p.expense} className="text-danger opacity-45" /> : null}
+            {p?.income ? <Amount value={p.income} plus className="text-[var(--c-blue)] opacity-45" /> : null}
           </button>
         );
       })}
@@ -374,10 +405,12 @@ function Amount({ value, plus, className }: { value: number; plus?: boolean; cla
 
 function EntryRow({
   entry,
+  planned,
   category,
   onOpen,
 }: {
   entry: MoneyEntry;
+  planned?: boolean;
   category?: { name: string; color: Parameters<typeof colorVar>[0] };
   onOpen: () => void;
 }) {
@@ -386,13 +419,19 @@ function EntryRow({
     <li>
       <button
         onClick={onOpen}
-        className="flex w-full items-center gap-3 rounded-lg border-l-[3px] px-3 py-2.5 text-left hover:bg-bg-hover"
+        className={`flex w-full items-center gap-3 rounded-lg border-l-[3px] px-3 py-2.5 text-left hover:bg-bg-hover ${
+          planned ? "opacity-50" : ""
+        }`}
         style={{ borderLeftColor: category ? colorVar(category.color) : "var(--line-strong)" }}
       >
         <span className="w-12 shrink-0 truncate text-xs text-fg-faint">{category?.name ?? "분류 없음"}</span>
         <span className="min-w-0 flex-1 truncate text-[15px]">
           {entry.title || <span className="text-fg-faint">{income ? "수입" : "지출"}</span>}
-          {entry.recurring_id && <span className="ml-1.5 text-xs text-fg-faint" title="고정 항목">↻</span>}
+          {planned ? (
+            <span className="ml-1.5 text-xs text-fg-faint">예정</span>
+          ) : (
+            entry.recurring_id && <span className="ml-1.5 text-xs text-fg-faint" title="고정 항목">↻</span>
+          )}
         </span>
         <span className={`shrink-0 text-[15px] tabular-nums ${income ? "text-[var(--c-blue)]" : "text-danger"}`}>
           {signedWon(entry.amount, entry.type)}

@@ -3,31 +3,63 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { newId, useStore } from "@/lib/data/store";
-import { MONEY_TYPE_LABEL, formatWon, parseWon, sortMoneyCategories } from "@/lib/money";
+import {
+  MONEY_TYPE_LABEL,
+  formatWon,
+  monthKey,
+  parseWon,
+  recurringDate,
+  recurringDayLabel,
+  recurringEntryId,
+  sortMoneyCategories,
+} from "@/lib/money";
 import { colorVar } from "@/lib/palette";
-import type { MoneyEntry, MoneyType } from "@/lib/types";
+import type { MoneyEntry, MoneyRecurring, MoneyType } from "@/lib/types";
 import { Chip } from "../editor/item-editor";
 import { XIcon } from "../icons";
 import { DatePicker } from "../pickers";
 
-/** 새 기록(그날 날짜) 또는 기존 기록 수정 */
-export type MoneyTarget = { kind: "new"; date: string; type?: MoneyType } | { kind: "entry"; id: string };
+/** 새 기록(그날 날짜), 기존 기록 수정, 또는 아직 날이 안 온 고정 항목(예정) */
+export type MoneyTarget =
+  | { kind: "new"; date: string; type?: MoneyType }
+  | { kind: "entry"; id: string }
+  | { kind: "planned"; ruleId: string; month: string };
 
 /**
  * 가계부 기록 창. 데스크톱은 가운데 팝업, 모바일은 아래에서 올라오는 시트.
  *   [지출 | 수입]  금액(숫자 키패드, 쉼표 자동)  분류  내용  날짜
  */
 export function MoneyEditor({ target, onClose }: { target: MoneyTarget; onClose: () => void }) {
-  const { money_entries, money_categories, saveMoneyEntry, deleteMoneyEntry } = useStore();
+  const { money_entries, money_categories, money_recurring, saveMoneyEntry, deleteMoneyEntry, saveMoneyRecurring } =
+    useStore();
   const existing = target.kind === "entry" ? money_entries.find((e) => e.id === target.id) : undefined;
-  const isNew = !existing;
+  const ruleId = target.kind === "planned" ? target.ruleId : existing?.recurring_id;
+  const rule = ruleId ? money_recurring.find((r) => r.id === ruleId) : undefined;
+  // 예정 항목은 고정 항목 값으로 채운다
+  const base: Partial<MoneyEntry> =
+    existing ??
+    (target.kind === "planned" && rule
+      ? {
+          type: rule.type,
+          amount: rule.amount,
+          category_id: rule.category_id,
+          title: rule.title,
+          date: recurringDate(rule.day, target.month),
+        }
+      : {});
+  const isPlanned = target.kind === "planned";
+  const isNew = !existing && !isPlanned;
+  const origDate = base.date;
 
-  const [type, setType] = useState<MoneyType>(existing?.type ?? (target.kind === "new" ? target.type : undefined) ?? "expense");
-  const [amount, setAmount] = useState(existing?.amount ?? 0);
-  const [categoryId, setCategoryId] = useState<string | null>(existing?.category_id ?? null);
-  const [title, setTitle] = useState(existing?.title ?? "");
-  const [date, setDate] = useState(existing?.date ?? (target.kind === "new" ? target.date : ""));
+  const [type, setType] = useState<MoneyType>(base.type ?? (target.kind === "new" ? target.type : undefined) ?? "expense");
+  const [amount, setAmount] = useState(base.amount ?? 0);
+  const [categoryId, setCategoryId] = useState<string | null>(base.category_id ?? null);
+  const [title, setTitle] = useState(base.title ?? "");
+  const [date, setDate] = useState(base.date ?? (target.kind === "new" ? target.date : ""));
+  const [repeat, setRepeat] = useState(false);
   const [tried, setTried] = useState(false);
+  // 매달 반복은 아직 고정 항목에 연결되지 않은 기록에서만 고른다
+  const canRepeat = !ruleId;
 
   const categories = sortMoneyCategories(money_categories).filter((c) => c.type === type);
   const amountRef = useRef<HTMLInputElement>(null);
@@ -39,8 +71,8 @@ export function MoneyEditor({ target, onClose }: { target: MoneyTarget; onClose:
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, isNew]);
 
-  // 수정하려던 기록이 다른 기기에서 지워졌으면 닫는다
-  if (target.kind === "entry" && !existing) {
+  // 수정하려던 기록·고정 항목이 다른 기기에서 지워졌으면 닫는다
+  if ((target.kind === "entry" && !existing) || (isPlanned && !rule)) {
     queueMicrotask(onClose);
     return null;
   }
@@ -52,27 +84,60 @@ export function MoneyEditor({ target, onClose }: { target: MoneyTarget; onClose:
       setCategoryId(null);
   }
 
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    setTried(true);
-    if (amount <= 0) return amountRef.current?.focus();
-    const entry: MoneyEntry = {
-      id: existing?.id ?? newId(),
+  /** 고정 항목의 그 달 기록을 다시 만들지 않게 표시 */
+  const skip = (r: MoneyRecurring, d: string) =>
+    saveMoneyRecurring({ ...r, skipped: [...r.skipped.filter((x) => monthKey(x) !== monthKey(d)), d] });
+
+  async function save() {
+    let recurringId = ruleId ?? null;
+    let id = existing?.id ?? newId();
+    if (repeat && canRepeat) {
+      // 이 기록을 첫 회로 하는 고정 항목을 만든다 (그날 날짜의 일 = 매달 N일)
+      const r: MoneyRecurring = {
+        id: newId(),
+        type,
+        amount,
+        category_id: categoryId,
+        title: title.trim(),
+        day: Number(date.slice(8)),
+        start_month: monthKey(date),
+        end_month: null,
+        skipped: [],
+        created_at: new Date().toISOString(),
+      };
+      await saveMoneyRecurring(r);
+      recurringId = r.id;
+      if (!existing) id = recurringEntryId(r.id, monthKey(date));
+    } else if (isPlanned && rule) {
+      // 예정 항목을 미리 기록: 자동 기록과 같은 id라 그날 다시 생기지 않는다
+      id = recurringEntryId(rule.id, monthKey(origDate!));
+    }
+    // 고정 기록을 다른 달로 옮기면, 원래 달은 다시 만들지 않는다
+    if (rule && origDate && monthKey(origDate) !== monthKey(date)) await skip(rule, origDate);
+    await saveMoneyEntry({
+      id,
       date,
       type,
       amount,
       category_id: categoryId,
       title: title.trim(),
-      recurring_id: existing?.recurring_id ?? null,
+      recurring_id: recurringId,
       created_at: existing?.created_at ?? new Date().toISOString(),
-    };
-    void saveMoneyEntry(entry);
+    });
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    setTried(true);
+    if (amount <= 0) return amountRef.current?.focus();
+    void save();
     onClose();
   }
 
   function remove() {
-    if (!existing) return;
-    void deleteMoneyEntry(existing.id);
+    // 고정 항목에서 온 기록·예정을 지우면 그 달은 건너뛴다
+    if (rule && origDate) void skip(rule, origDate);
+    if (existing) void deleteMoneyEntry(existing.id);
     onClose();
   }
 
@@ -86,7 +151,9 @@ export function MoneyEditor({ target, onClose }: { target: MoneyTarget; onClose:
         className="max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl border border-line bg-bg pb-[env(safe-area-inset-bottom)] shadow-xl md:max-w-md md:rounded-xl md:pb-0"
       >
         <div className="flex items-center justify-between px-5 pt-4">
-          <span className="text-sm font-medium text-fg-muted">{isNew ? "새 기록" : "기록 수정"}</span>
+          <span className="text-sm font-medium text-fg-muted">
+            {isPlanned ? "예정된 고정 기록" : isNew ? "새 기록" : "기록 수정"}
+          </span>
           <button type="button" onClick={onClose} aria-label="닫기" className="text-fg-muted hover:text-fg">
             <XIcon />
           </button>
@@ -168,15 +235,38 @@ export function MoneyEditor({ target, onClose }: { target: MoneyTarget; onClose:
             <DatePicker value={date} onChange={setDate} ariaLabel="날짜" />
           </div>
 
-          {existing?.recurring_id && (
-            <p className="text-xs text-fg-faint">고정 항목에서 자동으로 만든 기록이에요. 여기서 고쳐도 다음 달에는 영향이 없어요.</p>
+          {canRepeat && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={repeat}
+                onChange={(e) => setRepeat(e.target.checked)}
+                className="size-4 accent-[var(--accent)]"
+              />
+              매달 반복
+              {repeat && date && (
+                <span className="text-xs text-fg-faint">
+                  {recurringDayLabel(Number(date.slice(8)))}에 자동으로 기록돼요
+                </span>
+              )}
+            </label>
+          )}
+
+          {rule && (
+            <p className="text-xs leading-5 text-fg-faint">
+              ↻ {recurringDayLabel(rule.day)} 고정 항목
+              {isPlanned
+                ? "이에요. 저장하면 지금 기록되고, 그날 다시 생기지 않아요."
+                : "에서 만든 기록이에요. 여기서 고쳐도 다음 달에는 영향이 없어요."}{" "}
+              지우면 이번 달만 건너뛰어요. 고정 항목 자체는 설정 › 가계부에서 바꿔요.
+            </p>
           )}
         </div>
 
         <div className="flex items-center justify-between border-t border-line px-5 py-3">
           {!isNew ? (
             <button type="button" onClick={remove} className="text-sm text-danger hover:opacity-80">
-              삭제
+              {isPlanned ? "이번 달 건너뛰기" : "삭제"}
             </button>
           ) : (
             <span />

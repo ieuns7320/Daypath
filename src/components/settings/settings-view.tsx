@@ -10,7 +10,8 @@ import { TimePicker } from "../pickers";
 import { getInstallState, promptInstall, subscribeInstall, type InstallState } from "@/lib/pwa";
 import { supabase } from "@/lib/data/supabase";
 import { COLOR_KEYS, COLOR_LABELS, colorVar, type ColorKey } from "@/lib/palette";
-import { MONEY_TYPE_LABEL, sortMoneyCategories } from "@/lib/money";
+import { MONEY_TYPE_LABEL, recurringDayLabel, signedWon, sortMoneyCategories } from "@/lib/money";
+import { RecurringEditor } from "../money/recurring-editor";
 import type { Kind, MoneyType } from "@/lib/types";
 import { useMoneyCategorySeed } from "../money/seed";
 import { HashIcon, XIcon } from "../icons";
@@ -128,9 +129,67 @@ function MoneyCategories() {
     );
   return (
     <>
+      <RecurringSection />
       <MoneyCategorySection type="expense" />
       <MoneyCategorySection type="income" />
     </>
+  );
+}
+
+/** 고정 지출·수입: 매달 N일에 자동 기록 */
+function RecurringSection() {
+  const { money_recurring, money_categories } = useStore();
+  const [editing, setEditing] = useState<string | null | undefined>(undefined); // null = 새로
+  const categoryOf = new Map(money_categories.map((c) => [c.id, c]));
+  // 지출 먼저, 그 안에서 날짜 순
+  const list = [...money_recurring].sort((a, b) =>
+    a.type === b.type ? a.day - b.day : a.type === "expense" ? -1 : 1,
+  );
+  return (
+    <Section title="고정 지출·수입">
+      <p className="-mt-2 mb-3 text-xs text-fg-faint">
+        매달 그날이 되면 가계부에 자동으로 기록돼요. 날이 오기 전에는 흐린 &apos;예정&apos;으로 보여요.
+      </p>
+      <ul className="divide-y divide-line rounded-lg border border-line">
+        {list.map((r) => {
+          const c = r.category_id ? categoryOf.get(r.category_id) : undefined;
+          return (
+            <li key={r.id}>
+              <button
+                onClick={() => setEditing(r.id)}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-bg-hover"
+              >
+                <span className="flex size-6 items-center justify-center">
+                  <span
+                    className="size-3 rounded-[3px]"
+                    style={{ background: c ? colorVar(c.color) : "var(--line-strong)" }}
+                  />
+                </span>
+                <span className="w-16 shrink-0 text-xs text-fg-faint">{recurringDayLabel(r.day)}</span>
+                <span className="min-w-0 flex-1 truncate">{r.title || c?.name || MONEY_TYPE_LABEL[r.type]}</span>
+                <span
+                  className={`shrink-0 tabular-nums ${r.type === "income" ? "text-[var(--c-blue)]" : "text-danger"}`}
+                >
+                  {signedWon(r.amount, r.type)}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+        <li>
+          <button
+            onClick={() => setEditing(null)}
+            className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-fg-faint hover:text-fg"
+          >
+            <span className="flex size-6 items-center justify-center">
+              <span className="size-3 rounded-full border border-dashed border-fg-faint" />
+            </span>
+            새 고정 항목
+          </button>
+        </li>
+      </ul>
+      {editing !== undefined && <RecurringEditor id={editing} onClose={() => setEditing(undefined)} />}
+    </Section>
   );
 }
 

@@ -81,6 +81,8 @@ type Store = Snapshot & {
   /** 처음 쓸 때 기본 분류 여러 개를 한 번에 */
   saveMoneyCategories(categories: MoneyCategory[]): Promise<void>;
   saveMoneyEntry(entry: MoneyEntry): Promise<void>;
+  /** 여러 기록을 한 번에 (고정 항목 자동 기록) */
+  saveMoneyEntries(entries: MoneyEntry[]): Promise<void>;
   deleteMoneyEntry(id: string): Promise<void>;
   saveMoneyRecurring(item: MoneyRecurring): Promise<void>;
   /** 고정 항목을 지운다. 이미 만든 내역은 남고 연결만 풀린다 */
@@ -377,6 +379,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
         run(
           (s) => ({ ...s, money_entries: upsertById(s.money_entries, entry) }),
           () => repo.upsert("money_entries", entry),
+        ),
+      saveMoneyEntries: (entries) =>
+        run(
+          (s) => {
+            let list = s.money_entries;
+            for (const e of entries) list = upsertById(list, e);
+            return { ...s, money_entries: list };
+          },
+          () => repo.upsertMany("money_entries", entries),
         ),
       deleteMoneyEntry: (id) =>
         run(
