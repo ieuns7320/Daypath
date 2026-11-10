@@ -4,7 +4,18 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { createPortal } from "react-dom";
 import { useNotify } from "@/lib/data/notify";
 import { newId, useScoped, useStore } from "@/lib/data/store";
-import { ALLDAY_DEFAULT, ALLDAY_OPTIONS, TIMED_OPTIONS, reminderLabel } from "@/lib/reminders";
+import {
+  ALLDAY_CUSTOM_DAYS,
+  ALLDAY_DEFAULT,
+  ALLDAY_OPTIONS,
+  TIMED_OPTIONS,
+  alldayWhen,
+  daysBeforeLabel,
+  encodeAlldayCustom,
+  isAlldayCustom,
+  reminderLabel,
+  sortAlldayCustom,
+} from "@/lib/reminders";
 import {
   addDays,
   addMinutes,
@@ -690,7 +701,10 @@ function MilestoneField({
   );
 }
 
-/** 알림: 없음 + 여러 시점 중 고르기 (시간 일정: 정시~하루 전, 종일 일정: 당일·전날) */
+/**
+ * 알림: 없음 + 여러 시점 중 고르기 (시간 일정: 정시~하루 전, 종일 일정: 당일·전날).
+ * 종일 일정은 [+ 직접 정하기]로 "N일 전 + 시각"을 여러 개 더할 수 있다.
+ */
 export function ReminderField({
   allDay,
   alldayTime,
@@ -705,23 +719,212 @@ export function ReminderField({
   label?: string;
 }) {
   const options = allDay ? ALLDAY_OPTIONS : TIMED_OPTIONS;
+  const custom = allDay ? sortAlldayCustom(value.filter(isAlldayCustom)) : [];
+
+  /** 직접 정한 시점 더하기. 기본 선택지와 같은 시점이면 그 선택지를 켠다(중복 방지) */
+  const addCustom = (daysBefore: number, time: string) => {
+    const same = [...options, ...custom].find((v) => {
+      const w = alldayWhen(v, alldayTime);
+      return w.daysBefore === daysBefore && w.time === time;
+    });
+    const v = same ?? encodeAlldayCustom(daysBefore, time);
+    if (!value.includes(v)) onChange([...value, v]);
+  };
+
+  const [adding, setAdding] = useState(false);
+
   return (
-    <div className="flex items-start gap-2">
-      <span className="w-12 shrink-0 pt-1.5 text-xs text-fg-faint">{label}</span>
-      <div className="flex flex-wrap gap-1.5">
-        <Chip selected={value.length === 0} onClick={() => onChange([])}>
-          없음
-        </Chip>
-        {options.map((m) => (
-          <Chip
-            key={m}
-            selected={value.includes(m)}
-            onClick={() => onChange(value.includes(m) ? value.filter((x) => x !== m) : [...value, m])}
-          >
-            {reminderLabel(m, allDay, alldayTime)}
+    <div>
+      <div className="flex items-start gap-2">
+        <span className="w-12 shrink-0 pt-1.5 text-xs text-fg-faint">{label}</span>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <Chip selected={value.length === 0} onClick={() => onChange([])}>
+            없음
           </Chip>
+          {options.map((m) => (
+            <Chip
+              key={m}
+              selected={value.includes(m)}
+              onClick={() => onChange(value.includes(m) ? value.filter((x) => x !== m) : [...value, m])}
+            >
+              {reminderLabel(m, allDay, alldayTime)}
+            </Chip>
+          ))}
+          {/* 직접 정한 시점: 켜져 있는 것만 보이고 ✕로 뺀다 */}
+          {custom.map((m) => (
+            <span
+              key={m}
+              className="flex items-center gap-1 rounded-full border border-accent bg-accent py-1 pl-2.5 pr-1 text-xs text-accent-fg"
+            >
+              {reminderLabel(m, true, alldayTime)}
+              <button
+                type="button"
+                onClick={() => onChange(value.filter((x) => x !== m))}
+                aria-label={`${reminderLabel(m, true, alldayTime)} 알림 빼기`}
+                className="rounded-full p-0.5 opacity-70 hover:opacity-100"
+              >
+                <XIcon width={12} height={12} />
+              </button>
+            </span>
+          ))}
+          {allDay && !adding && (
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="rounded-full border border-dashed border-line px-2.5 py-1 text-xs text-fg-muted hover:border-line-strong hover:text-fg"
+            >
+              + 직접 정하기
+            </button>
+          )}
+        </div>
+      </div>
+      {allDay && adding && (
+        <CustomAlldayReminder
+          defaultTime={alldayTime}
+          onAdd={(d, t) => {
+            addCustom(d, t);
+            setAdding(false);
+          }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 종일 일정 알림 직접 정하기 (브라우저 기본 선택 상자 대신 앱 모양으로).
+ *   [당일|전날|2일 전|3일 전|7일 전]
+ *   [09] : [00]  ← 누르면 24시간 시·분 목록       [취소] [추가]
+ */
+function CustomAlldayReminder({
+  defaultTime,
+  onAdd,
+  onCancel,
+}: {
+  defaultTime: string;
+  onAdd: (daysBefore: number, time: string) => void;
+  onCancel: () => void;
+}) {
+  const [days, setDays] = useState(0);
+  const [time, setTime] = useState(defaultTime);
+  const [picking, setPicking] = useState(false);
+  const [hh, mm] = time.split(":");
+  // 분은 5분 단위. 설정 시각이 5분 단위가 아니면 그 값도 넣는다
+  const minutes = MINUTES.includes(mm) ? MINUTES : [...MINUTES, mm].sort();
+
+  const part = (text: string, name: string) => (
+    <button
+      type="button"
+      onClick={() => setPicking((v) => !v)}
+      aria-label={`${name} ${text}`}
+      aria-expanded={picking}
+      className={`w-14 rounded-md border py-1 text-center text-sm tabular-nums ${
+        picking ? "border-fg-muted" : "border-line hover:border-line-strong"
+      }`}
+    >
+      {text}
+    </button>
+  );
+
+  return (
+    <div className="mt-2 rounded-lg border border-line p-2.5 sm:ml-14">
+      <div role="radiogroup" aria-label="며칠 전" className="flex overflow-hidden rounded-md border border-line">
+        {ALLDAY_CUSTOM_DAYS.map((d) => (
+          <button
+            key={d}
+            type="button"
+            role="radio"
+            aria-checked={days === d}
+            onClick={() => setDays(d)}
+            className={`flex-1 whitespace-nowrap border-l border-line px-1.5 py-1 text-xs first:border-l-0 ${
+              days === d ? "bg-accent text-accent-fg" : "text-fg-muted hover:text-fg"
+            }`}
+          >
+            {daysBeforeLabel(d)}
+          </button>
         ))}
       </div>
+
+      <div className="mt-2 flex items-center gap-1">
+        {part(hh, "시")}
+        <span className="w-1.5 text-center text-fg-faint">:</span>
+        {part(mm, "분")}
+        <span className="flex-1" />
+        <button type="button" onClick={onCancel} className="px-2 py-1 text-xs text-fg-faint hover:text-fg">
+          취소
+        </button>
+        <button
+          type="button"
+          onClick={() => onAdd(days, time)}
+          className="rounded-md border border-accent bg-accent px-3 py-1 text-xs text-accent-fg"
+        >
+          추가
+        </button>
+      </div>
+
+      {picking && (
+        <div className="mt-1.5 flex gap-3.5">
+          <TimeColumn label="시" items={HOURS} value={hh} onPick={(h) => setTime(`${h}:${mm}`)} />
+          <TimeColumn
+            label="분"
+            items={minutes}
+            value={mm}
+            onPick={(m) => {
+              setTime(`${hh}:${m}`);
+              setPicking(false);
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+
+/** 시·분 목록 한 줄. 열릴 때 고른 값이 가운데 오도록 스크롤 */
+function TimeColumn({
+  label,
+  items,
+  value,
+  onPick,
+}: {
+  label: string;
+  items: string[];
+  value: string;
+  onPick: (v: string) => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = box.current;
+    const sel = el?.querySelector<HTMLElement>("[aria-selected=true]");
+    if (el && sel) el.scrollTop = sel.offsetTop - el.clientHeight / 2 + sel.clientHeight / 2;
+    // 열릴 때 한 번만
+  }, []);
+
+  return (
+    <div
+      ref={box}
+      role="listbox"
+      aria-label={label}
+      className="relative h-36 w-14 overflow-y-auto rounded-md border border-line p-1 [scrollbar-width:none]"
+    >
+      {items.map((v) => (
+        <button
+          key={v}
+          type="button"
+          role="option"
+          aria-selected={v === value}
+          onClick={() => onPick(v)}
+          className={`block w-full rounded py-1 text-center text-sm tabular-nums ${
+            v === value ? "bg-accent text-accent-fg" : "text-fg-muted hover:bg-bg-hover hover:text-fg"
+          }`}
+        >
+          {v}
+        </button>
+      ))}
     </div>
   );
 }

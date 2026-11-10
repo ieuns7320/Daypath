@@ -23,8 +23,50 @@ export const ALLDAY_OPTIONS = [0, 1440] as const;
 /** 새 종일 일정의 기본 알림: 당일 */
 export const ALLDAY_DEFAULT = [0];
 
+/*
+ * 종일 일정의 "직접 정한" 알림 (2026-11-10): 음수로 저장해 기존 값(0 당일, 1440 전날)과 겹치지 않게 한다.
+ *   값 = -(N일 전 × 1440 + 그날 몇 분째) - 1   예) 당일 07:30 → -451, 전날 21:00 → -2701
+ * DB 칸(integer[])은 그대로라 마이그레이션이 필요 없다.
+ */
+/** 직접 정하기에서 고를 수 있는 "며칠 전" */
+export const ALLDAY_CUSTOM_DAYS = [0, 1, 2, 3, 7] as const;
+
+export const isAlldayCustom = (v: number) => v < 0;
+
+export function encodeAlldayCustom(daysBefore: number, time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return -(daysBefore * 1440 + h * 60 + m) - 1;
+}
+
+export function decodeAlldayCustom(v: number): { daysBefore: number; time: string } {
+  const x = -v - 1;
+  const minute = x % 1440;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return { daysBefore: Math.floor(x / 1440), time: `${pad(Math.floor(minute / 60))}:${pad(minute % 60)}` };
+}
+
+/** 당일 / 전날 / N일 전 */
+export const daysBeforeLabel = (n: number) => (n === 0 ? "당일" : n === 1 ? "전날" : `${n}일 전`);
+
+/**
+ * 종일 일정 알림 값 → (며칠 전, 시각). 기본 선택지(0·1440)는 설정의 종일 알림 시각을 따른다.
+ * 같은 시점인지 비교할 때도 쓴다.
+ */
+export function alldayWhen(v: number, alldayTime: string): { daysBefore: number; time: string } {
+  if (isAlldayCustom(v)) return decodeAlldayCustom(v);
+  return { daysBefore: Math.round(v / 1440), time: alldayTime };
+}
+
+/** 직접 정한 알림 정렬: 먼저 울리는 것부터 */
+export function sortAlldayCustom(values: number[]): number[] {
+  return [...values].sort((a, b) => a - b);
+}
+
 export function reminderLabel(minutes: number, allDay: boolean, alldayTime: string): string {
-  if (allDay) return minutes === 0 ? `당일 ${alldayTime}` : `전날 ${alldayTime}`;
+  if (allDay) {
+    const { daysBefore, time } = alldayWhen(minutes, alldayTime);
+    return `${daysBeforeLabel(daysBefore)} ${time}`;
+  }
   if (minutes === 0) return "정시";
   if (minutes < 60) return `${minutes}분 전`;
   if (minutes < 1440) return `${minutes / 60}시간 전`;
@@ -61,8 +103,8 @@ export function buildQueue(
   };
 
   /* 일정 */
-  // 알림 시점이 회차보다 최대 하루(+여유) 앞설 수 있으므로 조금 넓게 펼친다
-  const maxLead = 2 * 1440;
+  // 알림 시점이 회차보다 최대 7일(직접 정한 종일 알림, +여유) 앞설 수 있으므로 넓게 펼친다
+  const maxLead = 8 * 1440;
   for (const event of events) {
     if (!event.reminders?.length) continue;
     for (const start of startsOf(event, now, addDays(until, maxLead / 1440))) {
@@ -70,9 +112,12 @@ export function buildQueue(
       const url = "/calendar";
       for (const m of event.reminders) {
         if (event.all_day) {
-          const at = new Date(fromInputs(day, settings.allday_time).getTime() - m * 60_000);
-          push(at, event.title, m === 0 ? "오늘 종일 일정" : "내일 종일 일정", url);
-        } else {
+          const { daysBefore, time } = alldayWhen(m, settings.allday_time);
+          const at = fromInputs(toDateInput(addDays(fromInputs(day), -daysBefore)), time);
+          const when = daysBefore === 0 ? "오늘" : daysBefore === 1 ? "내일" : `${daysBefore}일 뒤`;
+          push(at, event.title, `${when} 종일 일정`, url);
+        } else if (m >= 0) {
+          // 음수(종일용 직접 정한 값)는 시간 일정에서 무시
           const at = new Date(start.getTime() - m * 60_000);
           push(at, event.title, `${leadText(m)} · ${timeLabel(start.toISOString())}`, url);
         }
