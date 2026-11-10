@@ -69,7 +69,8 @@ export function TasksView() {
   const dayTasks = visible.filter((t) => t.due_date === selected);
   const isToday = selected === today;
   const carried = isToday ? carriedOver(visible, today) : [];
-  const undated = isToday ? visible.filter((t) => t.due_date === null) : [];
+  // 날짜 없는 로드맵 할 일은 로드맵에서만 본다(많아서 어지러움). 날짜를 정하면(오늘 하기 등) 그날 목록에 나온다
+  const undated = isToday ? visible.filter((t) => t.due_date === null && !t.milestone_id) : [];
 
   // 카테고리 필터가 걸려 있으면 그 카테고리 묶음만 (categories는 정렬되어 있음)
   const shownCategories = filter.categoryIds.length
