@@ -892,7 +892,7 @@ function ClearButton({ label, onClick }: { label: string; onClick: () => void })
   );
 }
 
-function Chip({
+export function Chip({
   selected,
   onClick,
   children,

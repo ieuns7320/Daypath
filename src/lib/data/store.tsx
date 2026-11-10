@@ -9,9 +9,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { CalendarEvent, Category, Goal, Kind, Milestone, Snapshot, Tag, Task } from "../types";
+import type {
+  CalendarEvent,
+  Category,
+  Goal,
+  Kind,
+  Milestone,
+  MoneyBudget,
+  MoneyCategory,
+  MoneyEntry,
+  MoneyRecurring,
+  Snapshot,
+  Tag,
+  Task,
+} from "../types";
 import type { EventChanges } from "../series";
-import { MissingTableError, repo } from "./repo";
+import { EMPTY, MissingTableError, repo } from "./repo";
 
 /** 카테고리/태그 필터. 같은 묶음 안은 "하나라도 맞으면", 두 묶음 사이는 "둘 다 맞아야" 통과. */
 export type Filter = { categoryIds: string[]; tagIds: string[] };
@@ -60,13 +73,26 @@ type Store = Snapshot & {
   /** 마일스톤을 지운다. 연결된 할 일·일정은 연결만 풀린다 */
   deleteMilestone(id: string): Promise<void>;
 
+  /** 가계부 테이블이 있는지 (클라우드에서 008 실행 전이면 false) */
+  moneyAvailable: boolean;
+  saveMoneyCategory(category: MoneyCategory): Promise<void>;
+  /** 분류를 지운다. 내역·고정 항목은 "분류 없음"이 된다 */
+  deleteMoneyCategory(id: string): Promise<void>;
+  /** 처음 쓸 때 기본 분류 여러 개를 한 번에 */
+  saveMoneyCategories(categories: MoneyCategory[]): Promise<void>;
+  saveMoneyEntry(entry: MoneyEntry): Promise<void>;
+  deleteMoneyEntry(id: string): Promise<void>;
+  saveMoneyRecurring(item: MoneyRecurring): Promise<void>;
+  /** 고정 항목을 지운다. 이미 만든 내역은 남고 연결만 풀린다 */
+  deleteMoneyRecurring(id: string): Promise<void>;
+  saveMoneyBudget(budget: MoneyBudget): Promise<void>;
+
   /** 캘린더용(event) / 할 일용(task) 카테고리·태그와 필터 (필터도 따로) */
   scoped: Record<Kind, Scoped>;
 };
 
 const StoreContext = createContext<Store | null>(null);
 
-const EMPTY: Snapshot = { events: [], tasks: [], categories: [], tags: [], goals: [], milestones: [] };
 
 /** 지워진 마일스톤에 연결돼 있던 할 일·일정은 연결만 푼다 (DB의 on delete set null) */
 function unlinkFrom(s: Snapshot, ids: Set<string>): Pick<Snapshot, "tasks" | "events"> {
@@ -315,6 +341,68 @@ export function DataProvider({ children }: { children: ReactNode }) {
             milestones: s.milestones.filter((m) => m.id !== id),
           }),
           () => repo.remove("milestones", id),
+        ),
+
+      /* 가계부 */
+      moneyAvailable: repo.hasMoney,
+      saveMoneyCategory: (category) =>
+        run(
+          (s) => ({ ...s, money_categories: upsertById(s.money_categories, category) }),
+          () => repo.upsert("money_categories", category),
+        ),
+      saveMoneyCategories: (categories) =>
+        run(
+          (s) => {
+            let list = s.money_categories;
+            for (const c of categories) list = upsertById(list, c);
+            return { ...s, money_categories: list };
+          },
+          () => repo.upsertMany("money_categories", categories),
+        ),
+      deleteMoneyCategory: (id) =>
+        run(
+          (s) => {
+            const clear = <T extends { category_id: string | null }>(x: T): T =>
+              x.category_id === id ? { ...x, category_id: null } : x;
+            return {
+              ...s,
+              money_categories: s.money_categories.filter((c) => c.id !== id),
+              money_entries: s.money_entries.map(clear),
+              money_recurring: s.money_recurring.map(clear),
+            };
+          },
+          () => repo.remove("money_categories", id),
+        ),
+      saveMoneyEntry: (entry) =>
+        run(
+          (s) => ({ ...s, money_entries: upsertById(s.money_entries, entry) }),
+          () => repo.upsert("money_entries", entry),
+        ),
+      deleteMoneyEntry: (id) =>
+        run(
+          (s) => ({ ...s, money_entries: s.money_entries.filter((e) => e.id !== id) }),
+          () => repo.remove("money_entries", id),
+        ),
+      saveMoneyRecurring: (item) =>
+        run(
+          (s) => ({ ...s, money_recurring: upsertById(s.money_recurring, item) }),
+          () => repo.upsert("money_recurring", item),
+        ),
+      deleteMoneyRecurring: (id) =>
+        run(
+          (s) => ({
+            ...s,
+            money_recurring: s.money_recurring.filter((r) => r.id !== id),
+            money_entries: s.money_entries.map((e) =>
+              e.recurring_id === id ? { ...e, recurring_id: null } : e,
+            ),
+          }),
+          () => repo.remove("money_recurring", id),
+        ),
+      saveMoneyBudget: (budget) =>
+        run(
+          (s) => ({ ...s, money_budgets: upsertById(s.money_budgets, budget) }),
+          () => repo.upsert("money_budgets", budget),
         ),
 
       scoped,

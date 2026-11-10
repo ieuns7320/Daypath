@@ -5,6 +5,11 @@ import {
   type Goal,
   type Kind,
   type Milestone,
+  type MoneyBudget,
+  type MoneyCategory,
+  type MoneyEntry,
+  type MoneyRecurring,
+  type MoneyType,
   type Snapshot,
   type Tag,
   type Task,
@@ -19,6 +24,10 @@ export type TableRow = {
   tags: Tag;
   goals: Goal;
   milestones: Milestone;
+  money_categories: MoneyCategory;
+  money_entries: MoneyEntry;
+  money_recurring: MoneyRecurring;
+  money_budgets: MoneyBudget;
 };
 export type TableName = keyof TableRow;
 
@@ -31,9 +40,22 @@ export interface Repo {
   remove(table: TableName, id: string): Promise<void>;
   /** 다른 기기/탭에서 바뀌면 onChange 호출. 반환값은 구독 해제 함수. */
   subscribe(onChange: () => void): () => void;
+  /** 가계부 테이블이 있는지 (008 실행 전이면 false, load 뒤에 정해짐) */
+  readonly hasMoney: boolean;
 }
 
-const EMPTY: Snapshot = { events: [], tasks: [], categories: [], tags: [], goals: [], milestones: [] };
+export const EMPTY: Snapshot = {
+  events: [],
+  tasks: [],
+  categories: [],
+  tags: [],
+  goals: [],
+  milestones: [],
+  money_categories: [],
+  money_entries: [],
+  money_recurring: [],
+  money_budgets: [],
+};
 
 /** 일부 테이블이 없을 때: 나머지 데이터(partial)는 정상으로 쓰고 메시지만 보여준다. */
 export class MissingTableError extends Error {
@@ -68,6 +90,10 @@ function readLocal(): Snapshot {
       tags: (parsed.tags ?? []).map((t) => ({ ...t, kind: t.kind ?? "event" })),
       goals: (parsed.goals ?? []).map((g) => ({ ...g, start_date: g.start_date ?? null })),
       milestones: parsed.milestones ?? [],
+      money_categories: parsed.money_categories ?? [],
+      money_entries: parsed.money_entries ?? [],
+      money_recurring: parsed.money_recurring ?? [],
+      money_budgets: parsed.money_budgets ?? [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -92,6 +118,7 @@ function unlinkMilestones(snap: Snapshot, ids: Set<string>) {
 
 const localRepo: Repo = {
   mode: "local",
+  hasMoney: true,
   async load() {
     return readLocal();
   },
@@ -117,6 +144,19 @@ const localRepo: Repo = {
     } else if (table === "milestones") {
       snap.milestones = snap.milestones.filter((m) => m.id !== id);
       unlinkMilestones(snap, new Set([id]));
+    } else if (table === "money_categories") {
+      // 분류를 지우면 내역·고정 항목은 "분류 없음" (DB의 on delete set null과 같게)
+      snap.money_categories = snap.money_categories.filter((c) => c.id !== id);
+      const clear = <T extends { category_id: string | null }>(x: T): T =>
+        x.category_id === id ? { ...x, category_id: null } : x;
+      snap.money_entries = snap.money_entries.map(clear);
+      snap.money_recurring = snap.money_recurring.map(clear);
+    } else if (table === "money_recurring") {
+      // 고정 항목을 지우면 이미 만든 내역은 남고 연결만 풀린다
+      snap.money_recurring = snap.money_recurring.filter((r) => r.id !== id);
+      snap.money_entries = snap.money_entries.map((e) =>
+        e.recurring_id === id ? { ...e, recurring_id: null } : e,
+      );
     } else {
       // 반복 일정을 지우면 떼어 낸 회차도 함께 (DB의 on delete cascade와 같게)
       (snap[table] as { id: string; series_id?: string | null }[]) = (
@@ -240,6 +280,55 @@ function toMilestone(r: Record<string, unknown>): Milestone {
   };
 }
 
+const toMoneyType = (v: unknown): MoneyType => (v === "income" ? "income" : "expense");
+
+function toMoneyCategory(r: Record<string, unknown>): MoneyCategory {
+  return {
+    id: String(r.id),
+    name: String(r.name ?? ""),
+    color: isColorKey(r.color) ? r.color : "gray",
+    type: toMoneyType(r.type),
+    sort_order: Number(r.sort_order ?? 0),
+  };
+}
+
+function toMoneyEntry(r: Record<string, unknown>): MoneyEntry {
+  return {
+    id: String(r.id),
+    date: String(r.date),
+    type: toMoneyType(r.type),
+    amount: Number(r.amount ?? 0),
+    category_id: (r.category_id as string | null) ?? null,
+    title: String(r.title ?? ""),
+    recurring_id: (r.recurring_id as string | null) ?? null,
+    created_at: String(r.created_at ?? new Date().toISOString()),
+  };
+}
+
+function toMoneyRecurring(r: Record<string, unknown>): MoneyRecurring {
+  return {
+    id: String(r.id),
+    type: toMoneyType(r.type),
+    amount: Number(r.amount ?? 0),
+    category_id: (r.category_id as string | null) ?? null,
+    title: String(r.title ?? ""),
+    day: Number(r.day ?? 1),
+    start_month: String(r.start_month),
+    end_month: (r.end_month as string | null) ?? null,
+    skipped: (r.skipped as string[] | null) ?? [],
+    created_at: String(r.created_at ?? new Date().toISOString()),
+  };
+}
+
+function toMoneyBudget(r: Record<string, unknown>): MoneyBudget {
+  return {
+    id: String(r.id),
+    month: String(r.month),
+    amount: r.amount == null ? null : Number(r.amount),
+    created_at: String(r.created_at ?? new Date().toISOString()),
+  };
+}
+
 /** 004_split_categories.sql 실행 전 DB에는 kind 칸이 없으므로, 저장할 때 그 칸을 뺀다 */
 function withoutKind<T extends { kind: Kind }>(row: T) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -258,6 +347,7 @@ function cloudRepo(): Repo {
   let hasReminders = true;
   let hasRoadmap = true;
   let hasGoalStart = true;
+  let hasMoney = true;
   const prepare = <T extends TableName>(table: T, row: TableRow[T]): TableRow[T] => {
     if (table === "events") {
       let e: Partial<CalendarEvent> = row as CalendarEvent;
@@ -279,8 +369,11 @@ function cloudRepo(): Repo {
   };
   return {
     mode: "cloud",
+    get hasMoney() {
+      return hasMoney;
+    },
     async load() {
-      const [ev, task, cat, tag, goal, ms, rec, kind, rem, gstart] = await Promise.all([
+      const [ev, task, cat, tag, goal, ms, rec, kind, rem, gstart, mcat, ment, mrec, mbud] = await Promise.all([
         db.from("events").select("*"),
         db.from("tasks").select("*"),
         db.from("categories").select("*").order("sort_order"),
@@ -291,6 +384,10 @@ function cloudRepo(): Repo {
         db.from("categories").select("kind").limit(1),
         db.from("events").select("reminders").limit(1),
         db.from("goals").select("start_date").limit(1),
+        db.from("money_categories").select("*").order("sort_order"),
+        db.from("money_entries").select("*"),
+        db.from("money_recurring").select("*"),
+        db.from("money_budgets").select("*").order("month"),
       ]);
       check(ev.error);
       check(cat.error);
@@ -300,7 +397,7 @@ function cloudRepo(): Repo {
         throw new MissingTableError(
           "할 일 테이블이 없어요. Supabase SQL Editor에서 supabase/migrations/002_tasks.sql을 실행해 주세요.",
           {
-            ...EMPTY,
+            ...structuredClone(EMPTY),
             events: (ev.data ?? []).map(toEvent),
             categories: (cat.data ?? []).map(toCategory),
             tags: (tag.data ?? []).map(toTag),
@@ -316,6 +413,11 @@ function cloudRepo(): Repo {
         // 로드맵 테이블이 없으면(006 실행 전) 빈 로드맵
         goals: goal.error ? [] : (goal.data ?? []).map(toGoal),
         milestones: ms.error ? [] : (ms.data ?? []).map(toMilestone),
+        // 가계부 테이블이 없으면(008 실행 전) 빈 가계부
+        money_categories: mcat.error ? [] : (mcat.data ?? []).map(toMoneyCategory),
+        money_entries: ment.error ? [] : (ment.data ?? []).map(toMoneyEntry),
+        money_recurring: mrec.error ? [] : (mrec.data ?? []).map(toMoneyRecurring),
+        money_budgets: mbud.error ? [] : (mbud.data ?? []).map(toMoneyBudget),
       };
       // 나중에 추가한 칸이 없으면(마이그레이션 전) 그 기능 없이 계속 쓰고 안내만 한다
       hasRecurrence = !rec.error;
@@ -323,12 +425,14 @@ function cloudRepo(): Repo {
       hasReminders = !rem.error;
       hasRoadmap = !goal.error && !ms.error;
       hasGoalStart = hasRoadmap && !gstart.error;
+      hasMoney = !mcat.error && !ment.error && !mrec.error && !mbud.error;
       const missing = [
         rec.error && "003_recurrence.sql(반복 일정)",
         kind.error && "004_split_categories.sql(캘린더·할 일 카테고리 분리)",
         rem.error && "005_notifications.sql(알림)",
         !hasRoadmap && "006_roadmap.sql(로드맵)",
         !hasGoalStart && "007_goal_start.sql(목표 시작일)",
+        !hasMoney && "008_money.sql(가계부)",
       ].filter(Boolean);
       if (missing.length) {
         throw new MissingTableError(
@@ -370,10 +474,19 @@ function cloudRepo(): Repo {
         .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, debounced)
         .on("postgres_changes", { event: "*", schema: "public", table: "milestones" }, debounced)
         .subscribe();
+      // 가계부도 채널을 따로 (008 실행 전이어도 다른 채널은 영향 없게)
+      const money = db
+        .channel("daypath-sync-money")
+        .on("postgres_changes", { event: "*", schema: "public", table: "money_categories" }, debounced)
+        .on("postgres_changes", { event: "*", schema: "public", table: "money_entries" }, debounced)
+        .on("postgres_changes", { event: "*", schema: "public", table: "money_recurring" }, debounced)
+        .on("postgres_changes", { event: "*", schema: "public", table: "money_budgets" }, debounced)
+        .subscribe();
       return () => {
         clearTimeout(timer);
         db.removeChannel(channel);
         db.removeChannel(roadmap);
+        db.removeChannel(money);
       };
     },
   };

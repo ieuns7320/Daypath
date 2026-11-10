@@ -127,6 +127,60 @@ export type Task = {
   milestone_id: string | null;
 };
 
+/* ---------- 가계부 (5단계, 008_money.sql) ---------- */
+
+/** 지출 / 수입 */
+export type MoneyType = "expense" | "income";
+
+/** 가계부 분류 (캘린더·할 일 카테고리와 따로) */
+export type MoneyCategory = {
+  id: string;
+  name: string;
+  color: ColorKey;
+  type: MoneyType;
+  sort_order: number;
+};
+
+/** 가계부 내역. amount는 원 단위 양수, 지출·수입은 type으로 구분 */
+export type MoneyEntry = {
+  id: string;
+  /** "YYYY-MM-DD" */
+  date: string;
+  type: MoneyType;
+  amount: number;
+  category_id: string | null;
+  /** 내용 (예: 점심) */
+  title: string;
+  /** 고정 항목이 자동으로 만든 내역이면 그 고정 항목 id */
+  recurring_id: string | null;
+  created_at: string;
+};
+
+/** 고정 지출·수입: 매달 day일(31이면 말일)에 자동으로 내역을 만든다 (5b) */
+export type MoneyRecurring = {
+  id: string;
+  type: MoneyType;
+  amount: number;
+  category_id: string | null;
+  title: string;
+  day: number;
+  /** 이 달부터 "YYYY-MM-01" */
+  start_month: string;
+  /** 이 달까지 "YYYY-MM-01" (null = 계속) */
+  end_month: string | null;
+  /** 자동 내역을 지운 날짜 "YYYY-MM-DD" (다시 만들지 않음) */
+  skipped: string[];
+  created_at: string;
+};
+
+/** 월 예산: month("YYYY-MM-01")부터 다음 기록 전까지 매달 같은 금액. amount null = 예산 안 씀 */
+export type MoneyBudget = {
+  id: string;
+  month: string;
+  amount: number | null;
+  created_at: string;
+};
+
 export type Snapshot = {
   events: CalendarEvent[];
   tasks: Task[];
@@ -134,4 +188,8 @@ export type Snapshot = {
   tags: Tag[];
   goals: Goal[];
   milestones: Milestone[];
+  money_categories: MoneyCategory[];
+  money_entries: MoneyEntry[];
+  money_recurring: MoneyRecurring[];
+  money_budgets: MoneyBudget[];
 };

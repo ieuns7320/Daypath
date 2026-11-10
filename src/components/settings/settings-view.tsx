@@ -10,7 +10,9 @@ import { TimePicker } from "../pickers";
 import { getInstallState, promptInstall, subscribeInstall, type InstallState } from "@/lib/pwa";
 import { supabase } from "@/lib/data/supabase";
 import { COLOR_KEYS, COLOR_LABELS, colorVar, type ColorKey } from "@/lib/palette";
-import type { Kind } from "@/lib/types";
+import { MONEY_TYPE_LABEL, sortMoneyCategories } from "@/lib/money";
+import type { Kind, MoneyType } from "@/lib/types";
+import { useMoneyCategorySeed } from "../money/seed";
 import { HashIcon, XIcon } from "../icons";
 
 export function SettingsView() {
@@ -72,16 +74,18 @@ function ThemeSection() {
 /* ---------- 카테고리·태그: [캘린더 | 할 일] 전환 ---------- */
 
 const KIND_LABEL: Record<Kind, string> = { event: "캘린더", task: "할 일" };
+type LabelTab = Kind | "money";
+const TAB_LABEL: Record<LabelTab, string> = { ...KIND_LABEL, money: "가계부" };
 
 /** 캘린더용과 할 일용 카테고리·태그는 따로 관리한다. 위 전환으로 고른 쪽만 보여 준다. */
 function LabelsSection() {
-  const [kind, setKind] = useState<Kind>("event");
+  const [kind, setKind] = useState<LabelTab>("event");
   return (
     <div className="space-y-6">
       <div>
         <h2 className="mb-3 text-sm font-medium text-fg-muted">카테고리·태그</h2>
         <div className="inline-flex rounded-lg bg-bg-hover p-0.5" role="tablist" aria-label="어디에 쓰는지">
-          {(["event", "task"] as const).map((k) => (
+          {(["event", "task", "money"] as const).map((k) => (
             <button
               key={k}
               role="tab"
@@ -91,17 +95,77 @@ function LabelsSection() {
                 kind === k ? "bg-bg font-medium shadow-sm" : "text-fg-muted"
               }`}
             >
-              {KIND_LABEL[k]}
+              {TAB_LABEL[k]}
             </button>
           ))}
         </div>
         <p className="mt-2 text-xs text-fg-faint">
-          캘린더와 할 일은 카테고리·태그를 따로 써요. 여기서 고른 쪽만 보여요.
+          캘린더·할 일·가계부는 분류를 따로 써요. 여기서 고른 쪽만 보여요.
         </p>
       </div>
-      <CategorySection kind={kind} />
-      <TagSection kind={kind} />
+      {kind === "money" ? (
+        <MoneyCategories />
+      ) : (
+        <>
+          <CategorySection kind={kind} />
+          <TagSection kind={kind} />
+        </>
+      )}
     </div>
+  );
+}
+
+/* ---------- 가계부 분류 ---------- */
+
+function MoneyCategories() {
+  const { moneyAvailable } = useStore();
+  useMoneyCategorySeed();
+  if (!moneyAvailable)
+    return (
+      <p className="text-sm text-fg-muted">
+        Supabase SQL Editor에서 <code className="rounded bg-bg-hover px-1 text-xs">008_money.sql</code>을 실행하면 쓸 수 있어요.
+      </p>
+    );
+  return (
+    <>
+      <MoneyCategorySection type="expense" />
+      <MoneyCategorySection type="income" />
+    </>
+  );
+}
+
+function MoneyCategorySection({ type }: { type: MoneyType }) {
+  const { money_categories, saveMoneyCategory, deleteMoneyCategory } = useStore();
+  const list = sortMoneyCategories(money_categories).filter((c) => c.type === type);
+  return (
+    <Section title={`${MONEY_TYPE_LABEL[type]} 분류`}>
+      <ul className="divide-y divide-line rounded-lg border border-line">
+        {list.map((c) => (
+          <ItemRow
+            key={c.id}
+            name={c.name}
+            color={c.color}
+            marker={<span className="size-3 rounded-[3px]" style={{ background: colorVar(c.color) }} />}
+            onRename={(name) => saveMoneyCategory({ ...c, name })}
+            onRecolor={(color) => saveMoneyCategory({ ...c, color })}
+            deleteNote="이 분류의 기록은 '분류 없음'이 돼요."
+            onDelete={() => void deleteMoneyCategory(c.id)}
+          />
+        ))}
+        <AddRow
+          placeholder="새 분류"
+          onAdd={(name, color) =>
+            saveMoneyCategory({
+              id: newId(),
+              name,
+              color,
+              type,
+              sort_order: Math.max(-1, ...money_categories.map((m) => m.sort_order)) + 1,
+            })
+          }
+        />
+      </ul>
+    </Section>
   );
 }
 

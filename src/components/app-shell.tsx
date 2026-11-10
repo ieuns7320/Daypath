@@ -11,6 +11,7 @@ import {
   HashIcon,
   SettingsIcon,
   TargetIcon,
+  WalletIcon,
   XIcon,
 } from "./icons";
 
@@ -18,6 +19,7 @@ const NAV = [
   { href: "/calendar", label: "캘린더", Icon: CalendarIcon },
   { href: "/todos", label: "할 일", Icon: CheckSquareIcon },
   { href: "/roadmap", label: "로드맵", Icon: TargetIcon },
+  { href: "/money", label: "가계부", Icon: WalletIcon },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -76,7 +78,8 @@ function Sidebar() {
         ))}
       </nav>
 
-      <div className="mt-6 min-h-0 flex-1 space-y-6 overflow-y-auto px-3">
+      {/* 가계부는 캘린더·할 일 카테고리와 따로라서 필터를 숨긴다 */}
+      <div className={`mt-6 min-h-0 flex-1 space-y-6 overflow-y-auto px-3 ${isActive("/money") ? "invisible" : ""}`}>
         {filterActive && (
           <button
             onClick={clearFilter}

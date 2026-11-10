@@ -127,3 +127,11 @@ export const HashIcon =(p: IconProps) => (
     <path d="M5 9h15M4 15h15M10 3 8 21M16 3l-2 18" />
   </Base>
 );
+
+export const WalletIcon = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="3" y="5.5" width="18" height="14" rx="2.5" />
+    <path d="M3 9.5h18" />
+    <path d="M16 14.5h1.5" />
+  </Base>
+);
