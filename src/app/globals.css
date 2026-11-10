@@ -89,8 +89,3 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* 날짜/시간 입력의 달력 아이콘이 다크 모드에서 보이도록 */
-.dark input[type="date"],
-.dark input[type="time"] {
-  color-scheme: dark;
-}

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { createPortal } from "react-dom";
 import { useNotify } from "@/lib/data/notify";
 import { newId, useScoped, useStore } from "@/lib/data/store";
+import { DatePicker, HOURS, TimeColumn, TimePicker, minutesWith } from "@/components/pickers";
 import {
   ALLDAY_CUSTOM_DAYS,
   ALLDAY_DEFAULT,
@@ -345,39 +346,22 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
             /* ---------- 일정: 시작·종료·종일 ---------- */
             <div className="space-y-2">
               <Row label="시작">
-                <input
-                  type="date"
+                <DatePicker
                   value={startDate}
-                  onChange={(e) => e.target.value && changeEventStart(e.target.value, startTime)}
-                  className={inputCls}
+                  onChange={(v) => changeEventStart(v, startTime)}
+                  ariaLabel="시작 날짜"
                 />
                 {!allDay && (
-                  <input
-                    type="time"
-                    step={300}
+                  <TimePicker
                     value={startTime}
-                    onChange={(e) => e.target.value && changeEventStart(startDate, e.target.value)}
-                    className={inputCls}
+                    onChange={(v) => changeEventStart(startDate, v)}
+                    ariaLabel="시작 시각"
                   />
                 )}
               </Row>
               <Row label="종료">
-                <input
-                  type="date"
-                  value={endDate}
-                  min={startDate}
-                  onChange={(e) => e.target.value && setEndDate(e.target.value)}
-                  className={inputCls}
-                />
-                {!allDay && (
-                  <input
-                    type="time"
-                    step={300}
-                    value={endTime}
-                    onChange={(e) => e.target.value && setEndTime(e.target.value)}
-                    className={inputCls}
-                  />
-                )}
+                <DatePicker value={endDate} min={startDate} onChange={setEndDate} ariaLabel="종료 날짜" />
+                {!allDay && <TimePicker value={endTime} onChange={setEndTime} ariaLabel="종료 시각" />}
               </Row>
               <label className="flex w-fit cursor-pointer items-center gap-2 pl-14 text-sm text-fg-muted">
                 <input
@@ -419,12 +403,7 @@ export function ItemEditor({ target, onClose }: { target: EditorTarget; onClose:
             <Row label="날짜">
               {hasDay ? (
                 <>
-                  <input
-                    type="date"
-                    value={day}
-                    onChange={(e) => e.target.value && setDay(e.target.value)}
-                    className={inputCls}
-                  />
+                  <DatePicker value={day} onChange={setDay} ariaLabel="하는 날" />
                   <ClearButton label="날짜 없애기" onClick={() => setHasDay(false)} />
                 </>
               ) : (
@@ -630,13 +609,11 @@ function RepeatField({
               <option value="count">횟수</option>
             </select>
             {endType === "until" && (
-              <input
-                type="date"
+              <DatePicker
                 value={custom.until ?? ""}
                 min={toDateInput(start)}
-                onChange={(e) => e.target.value && onCustom({ until: e.target.value })}
-                className={inputCls}
-                aria-label="종료 날짜"
+                onChange={(v) => onCustom({ until: v })}
+                ariaLabel="반복 종료 날짜"
               />
             )}
             {endType === "count" && (
@@ -810,8 +787,7 @@ function CustomAlldayReminder({
   const [time, setTime] = useState(defaultTime);
   const [picking, setPicking] = useState(false);
   const [hh, mm] = time.split(":");
-  // 분은 5분 단위. 설정 시각이 5분 단위가 아니면 그 값도 넣는다
-  const minutes = MINUTES.includes(mm) ? MINUTES : [...MINUTES, mm].sort();
+  const minutes = minutesWith(mm);
 
   const part = (text: string, name: string) => (
     <button
@@ -877,54 +853,6 @@ function CustomAlldayReminder({
           />
         </div>
       )}
-    </div>
-  );
-}
-
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
-const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
-
-/** 시·분 목록 한 줄. 열릴 때 고른 값이 가운데 오도록 스크롤 */
-function TimeColumn({
-  label,
-  items,
-  value,
-  onPick,
-}: {
-  label: string;
-  items: string[];
-  value: string;
-  onPick: (v: string) => void;
-}) {
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = box.current;
-    const sel = el?.querySelector<HTMLElement>("[aria-selected=true]");
-    if (el && sel) el.scrollTop = sel.offsetTop - el.clientHeight / 2 + sel.clientHeight / 2;
-    // 열릴 때 한 번만
-  }, []);
-
-  return (
-    <div
-      ref={box}
-      role="listbox"
-      aria-label={label}
-      className="relative h-36 w-14 overflow-y-auto rounded-md border border-line p-1 [scrollbar-width:none]"
-    >
-      {items.map((v) => (
-        <button
-          key={v}
-          type="button"
-          role="option"
-          aria-selected={v === value}
-          onClick={() => onPick(v)}
-          className={`block w-full rounded py-1 text-center text-sm tabular-nums ${
-            v === value ? "bg-accent text-accent-fg" : "text-fg-muted hover:bg-bg-hover hover:text-fg"
-          }`}
-        >
-          {v}
-        </button>
-      ))}
     </div>
   );
 }

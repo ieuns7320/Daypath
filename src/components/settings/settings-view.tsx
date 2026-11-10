@@ -6,6 +6,7 @@ import { useNotify } from "@/lib/data/notify";
 import { newId, useScoped, useStore } from "@/lib/data/store";
 import { disablePush, enablePush, getPushState, sendTestPush, type PushState } from "@/lib/push";
 import { ReminderField } from "../editor/item-editor";
+import { TimePicker } from "../pickers";
 import { getInstallState, promptInstall, subscribeInstall, type InstallState } from "@/lib/pwa";
 import { supabase } from "@/lib/data/supabase";
 import { COLOR_KEYS, COLOR_LABELS, colorVar, type ColorKey } from "@/lib/palette";
@@ -493,14 +494,12 @@ function NotifySection() {
               />
               하는 날
             </label>
-            <input
-              type="time"
-              step={300}
+            <TimePicker
               value={settings.task_time}
               disabled={!settings.task_digest}
-              onChange={(e) => e.target.value && void saveSettings({ task_time: e.target.value })}
-              className="rounded-md border border-line bg-bg px-2 py-1 text-sm outline-none focus:border-fg-muted disabled:opacity-50"
-              aria-label="할 일 알림 시각"
+              onChange={(v) => void saveSettings({ task_time: v })}
+              ariaLabel="할 일 알림 시각"
+              className="!py-1"
             />
             <span className="text-xs text-fg-faint">그날 할 일을 묶어서 한 번</span>
           </div>
@@ -524,14 +523,7 @@ function TimeRow({
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="w-12 shrink-0 text-xs text-fg-faint">{label}</span>
-      <input
-        type="time"
-        step={300}
-        value={value}
-        onChange={(e) => e.target.value && onChange(e.target.value)}
-        className="rounded-md border border-line bg-bg px-2 py-1 text-sm outline-none focus:border-fg-muted"
-        aria-label={`${label} ${hint}`}
-      />
+      <TimePicker value={value} onChange={onChange} ariaLabel={`${label} ${hint}`} className="!py-1" />
       <span className="text-xs text-fg-faint">{hint}</span>
     </div>
   );

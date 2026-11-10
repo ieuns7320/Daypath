@@ -6,9 +6,7 @@ import { newId, useStore } from "@/lib/data/store";
 import { COLOR_KEYS, COLOR_LABELS, colorVar, type ColorKey } from "@/lib/palette";
 import type { Goal, Milestone } from "@/lib/types";
 import { XIcon } from "../icons";
-
-const inputCls =
-  "rounded-md border border-line bg-bg px-2 py-1.5 text-sm outline-none focus:border-fg-muted";
+import { DatePicker } from "../pickers";
 
 /** 목표·마일스톤 편집 창 공통 틀 (데스크톱 가운데 팝업, 모바일 아래 시트) */
 function Dialog({
@@ -94,12 +92,7 @@ function DateField({
       <span className="w-12 shrink-0 text-xs text-fg-faint">{label}</span>
       {value ? (
         <>
-          <input
-            type="date"
-            value={value}
-            onChange={(e) => e.target.value && onChange(e.target.value)}
-            className={inputCls}
-          />
+          <DatePicker value={value} onChange={onChange} ariaLabel={label} />
           <button
             type="button"
             onClick={() => onChange(null)}

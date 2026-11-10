@@ -16,6 +16,7 @@ import {
 import type { CalendarEvent, Goal, Task } from "@/lib/types";
 import { ItemEditor, type EditorTarget } from "../editor/item-editor";
 import { CalendarIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, PlusIcon } from "../icons";
+import { DatePicker } from "../pickers";
 import { TaskRow } from "../tasks/task-row";
 import { GoalDialog, MilestoneDialog } from "./roadmap-dialogs";
 import { RoadmapTimeline } from "./roadmap-timeline";
@@ -473,13 +474,12 @@ function AddTask({ milestoneId }: { milestoneId: string }) {
         aria-label="마일스톤 할 일"
         className="min-w-0 flex-1 border-b border-line bg-transparent pb-1 text-[15px] outline-none placeholder:text-fg-faint focus:border-fg-muted"
       />
-      <input
-        type="date"
+      <DatePicker
         value={day}
-        onChange={(e) => setDay(e.target.value)}
-        aria-label="하는 날 (선택)"
-        title="하는 날 (선택, 정하면 할 일 탭 그날에도 보여요)"
-        className="rounded-md border border-line bg-bg px-1.5 py-0.5 text-xs text-fg-muted outline-none focus:border-fg-muted"
+        onChange={setDay}
+        ariaLabel="하는 날 (선택, 정하면 할 일 탭 그날에도 보여요)"
+        placeholder="하는 날"
+        className="!px-1.5 !py-0.5 !text-xs text-fg-muted"
       />
     </form>
   );
