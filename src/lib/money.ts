@@ -225,3 +225,22 @@ export function firstRecurringMonth(day: number, today: string): string {
   const thisMonth = monthKey(today);
   return recurringDate(day, thisMonth) < today ? addMonths(thisMonth, 1) : thisMonth;
 }
+
+/* ---------- 분석 ---------- */
+
+export type CategoryGroup = { categoryId: string | null; amount: number; entries: MoneyEntry[] };
+
+/** 그 달의 지출(또는 수입)을 분류별로 묶어 금액 큰 순. 기록은 날짜 순 */
+export function categoryBreakdown(entries: MoneyEntry[], month: string, type: MoneyType): CategoryGroup[] {
+  const map = new Map<string | null, CategoryGroup>();
+  for (const e of entries) {
+    if (e.type !== type || monthKey(e.date) !== month) continue;
+    const g = map.get(e.category_id) ?? { categoryId: e.category_id, amount: 0, entries: [] };
+    g.amount += e.amount;
+    g.entries.push(e);
+    map.set(e.category_id, g);
+  }
+  const list = [...map.values()];
+  for (const g of list) g.entries.sort((a, b) => a.date.localeCompare(b.date) || a.created_at.localeCompare(b.created_at));
+  return list.sort((a, b) => b.amount - a.amount);
+}

@@ -19,9 +19,26 @@ import { colorVar } from "@/lib/palette";
 import type { MoneyEntry } from "@/lib/types";
 import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from "../icons";
 import { MoneyEditor, type MoneyTarget } from "./money-editor";
+import { MoneyStats } from "./money-stats";
 import { useMoneyCategorySeed, useRecurringSync } from "./seed";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** [달력 | 분석] 전환은 기기에 기억한다 */
+type View = "calendar" | "stats";
+const VIEW_KEY = "daypath:money-view";
+function readView(): View {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "stats" ? "stats" : "calendar";
+  } catch {
+    return "calendar";
+  }
+}
+function saveView(v: View) {
+  try {
+    localStorage.setItem(VIEW_KEY, v);
+  } catch {}
+}
 
 /**
  * 가계부 탭: 데스크톱은 왼쪽(모바일은 위) 예산 요약 + 월간 달력, 오른쪽(아래) 고른 날 기록.
@@ -34,6 +51,7 @@ export function MoneyView() {
   const [selected, setSelected] = useState(today);
   const [month, setMonth] = useState(monthKey(today));
   const [editor, setEditor] = useState<MoneyTarget | null>(null);
+  const [view, setView] = useState<View>(readView);
 
   useMoneyCategorySeed();
   useRecurringSync();
@@ -68,6 +86,29 @@ export function MoneyView() {
     setSelected(monthKey(today) === next ? today : next);
   };
 
+  const monthNav = (
+    <div className="mb-3 flex items-center gap-1">
+      <h2 className="flex-1 text-lg font-semibold tracking-tight">
+        {Number(month.slice(0, 4))}년 {Number(month.slice(5, 7))}월
+      </h2>
+      <button onClick={() => shift(-1)} aria-label="이전 달" className="rounded-md p-1.5 text-fg-muted hover:bg-bg-hover hover:text-fg">
+        <ChevronLeftIcon />
+      </button>
+      <button
+        onClick={() => {
+          setMonth(monthKey(today));
+          setSelected(today);
+        }}
+        className="rounded-md px-2 py-1 text-sm text-fg-muted hover:bg-bg-hover hover:text-fg"
+      >
+        오늘
+      </button>
+      <button onClick={() => shift(1)} aria-label="다음 달" className="rounded-md p-1.5 text-fg-muted hover:bg-bg-hover hover:text-fg">
+        <ChevronRightIcon />
+      </button>
+    </div>
+  );
+
   if (mode === "cloud" && ready && !moneyAvailable) {
     return (
       <div className="flex h-full flex-col">
@@ -87,6 +128,27 @@ export function MoneyView() {
     <div className="relative flex h-full flex-col">
       <header className="flex items-center gap-2 border-b border-line px-4 py-2.5 md:px-6">
         <h1 className="flex-1 text-base font-semibold tracking-tight md:text-lg">가계부</h1>
+        <div role="tablist" aria-label="보기" className="inline-flex rounded-lg bg-bg-hover p-0.5">
+          {(
+            [
+              ["calendar", "달력"],
+              ["stats", "분석"],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              role="tab"
+              aria-selected={view === v}
+              onClick={() => {
+                setView(v);
+                saveView(v);
+              }}
+              className={`rounded-md px-3 py-1 text-sm ${view === v ? "bg-bg font-medium shadow-sm" : "text-fg-muted"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <button
           onClick={() => setEditor({ kind: "new", date: selected })}
           className="flex items-center gap-1 rounded-md border border-line px-2.5 py-1 text-sm text-fg-muted hover:border-line-strong hover:text-fg"
@@ -96,29 +158,18 @@ export function MoneyView() {
         </button>
       </header>
 
+      {view === "stats" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-3xl px-4 pb-24 pt-4 md:px-8 md:pt-5">
+            {monthNav}
+            <MoneyStats month={month} onOpen={(id) => setEditor({ kind: "entry", id })} />
+          </div>
+        </div>
+      ) : (
       <div className="min-h-0 flex-1 overflow-y-auto md:flex md:overflow-hidden">
         {/* 요약 + 달력 */}
         <aside className="border-b border-line px-4 py-4 md:w-[440px] md:shrink-0 md:overflow-y-auto md:border-b-0 md:border-r md:px-6 md:py-5">
-          <div className="mb-3 flex items-center gap-1">
-            <h2 className="flex-1 text-lg font-semibold tracking-tight">
-              {Number(month.slice(0, 4))}년 {Number(month.slice(5, 7))}월
-            </h2>
-            <button onClick={() => shift(-1)} aria-label="이전 달" className="rounded-md p-1.5 text-fg-muted hover:bg-bg-hover hover:text-fg">
-              <ChevronLeftIcon />
-            </button>
-            <button
-              onClick={() => {
-                setMonth(monthKey(today));
-                setSelected(today);
-              }}
-              className="rounded-md px-2 py-1 text-sm text-fg-muted hover:bg-bg-hover hover:text-fg"
-            >
-              오늘
-            </button>
-            <button onClick={() => shift(1)} aria-label="다음 달" className="rounded-md p-1.5 text-fg-muted hover:bg-bg-hover hover:text-fg">
-              <ChevronRightIcon />
-            </button>
-          </div>
+          {monthNav}
 
           <Summary month={month} today={today} total={total} plannedExpense={plannedExpense} budgetAmount={budget?.amount ?? null} />
 
@@ -171,6 +222,7 @@ export function MoneyView() {
           </div>
         </main>
       </div>
+      )}
 
       {editor && <MoneyEditor target={editor} onClose={() => setEditor(null)} />}
     </div>
