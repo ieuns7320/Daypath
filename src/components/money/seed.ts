@@ -22,12 +22,14 @@ export function useMoneyCategorySeed() {
 /**
  * 고정 지출·수입: 날이 왔는데 기록이 없으면 만든다 (가계부 탭을 열 때).
  * id가 항목·달로 정해져 있어 두 기기가 동시에 만들어도 하나만 남는다.
+ * 저장 중인 변경이 있으면 끝날 때까지 기다린다: 방금 만든 고정 항목이 아직 DB에 없을 때
+ * 그 기록을 먼저 보내면 recurring_id 외래 키 오류가 난다.
  */
 export function useRecurringSync() {
-  const { ready, moneyAvailable, money_recurring, money_entries, saveMoneyEntries } = useStore();
+  const { ready, moneyAvailable, pending, money_recurring, money_entries, saveMoneyEntries } = useStore();
   const tried = useRef(new Set<string>());
   useEffect(() => {
-    if (!ready || !moneyAvailable || money_recurring.length === 0) return;
+    if (!ready || !moneyAvailable || pending > 0 || money_recurring.length === 0) return;
     // 한 번 시도한 id는 다시 보내지 않는다(저장 실패 시 무한 반복 방지)
     const due = dueRecurringEntries(money_recurring, money_entries, todayInput()).filter(
       (e) => !tried.current.has(e.id),
@@ -35,5 +37,5 @@ export function useRecurringSync() {
     if (due.length === 0) return;
     for (const e of due) tried.current.add(e.id);
     void saveMoneyEntries(due);
-  }, [ready, moneyAvailable, money_recurring, money_entries, saveMoneyEntries]);
+  }, [ready, moneyAvailable, pending, money_recurring, money_entries, saveMoneyEntries]);
 }

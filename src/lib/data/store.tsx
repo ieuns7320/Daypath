@@ -54,6 +54,8 @@ type Store = Snapshot & {
   ready: boolean;
   error: string | null;
   clearError(): void;
+  /** 아직 저장이 끝나지 않은 변경 수 (화면은 이미 바뀐 상태) */
+  pending: number;
 
   saveEvent(event: CalendarEvent): Promise<void>;
   deleteEvent(id: string): Promise<void>;
@@ -121,6 +123,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(0);
   const [filters, setFilters] = useState<Record<Kind, Filter>>({ event: NO_FILTER, task: NO_FILTER });
 
   const reload = useCallback(async () => {
@@ -149,11 +152,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const run = useCallback(
     async (optimistic: (s: Snapshot) => Snapshot, persist: () => Promise<void>) => {
       setSnap(optimistic);
+      setPending((n) => n + 1);
       try {
         await persist();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
         await reload();
+      } finally {
+        setPending((n) => n - 1);
       }
     },
     [reload],
@@ -208,6 +214,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       ready,
       error,
       clearError: () => setError(null),
+      pending,
 
       /* 일정 */
       saveEvent: (event) =>
@@ -418,7 +425,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       scoped,
     };
-  }, [snap, loading, ready, error, run, scoped]);
+  }, [snap, loading, ready, error, pending, run, scoped]);
 
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }
